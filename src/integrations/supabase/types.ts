@@ -14,16 +14,243 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      communities: {
+        Row: {
+          created_at: string
+          id: string
+          name: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          name: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          name?: string
+        }
+        Relationships: []
+      }
+      deletion_queue: {
+        Row: {
+          id: string
+          reason: string | null
+          record_id: string
+          requested_at: string
+          requested_by: string
+          status: string
+        }
+        Insert: {
+          id?: string
+          reason?: string | null
+          record_id: string
+          requested_at?: string
+          requested_by: string
+          status?: string
+        }
+        Update: {
+          id?: string
+          reason?: string | null
+          record_id?: string
+          requested_at?: string
+          requested_by?: string
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "deletion_queue_record_id_fkey"
+            columns: ["record_id"]
+            isOneToOne: false
+            referencedRelation: "records"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      history_logs: {
+        Row: {
+          changed_by: string
+          created_at: string
+          id: string
+          new_risk_level: Database["public"]["Enums"]["risk_level"] | null
+          notes: string | null
+          old_risk_level: Database["public"]["Enums"]["risk_level"] | null
+          record_id: string
+        }
+        Insert: {
+          changed_by: string
+          created_at?: string
+          id?: string
+          new_risk_level?: Database["public"]["Enums"]["risk_level"] | null
+          notes?: string | null
+          old_risk_level?: Database["public"]["Enums"]["risk_level"] | null
+          record_id: string
+        }
+        Update: {
+          changed_by?: string
+          created_at?: string
+          id?: string
+          new_risk_level?: Database["public"]["Enums"]["risk_level"] | null
+          notes?: string | null
+          old_risk_level?: Database["public"]["Enums"]["risk_level"] | null
+          record_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "history_logs_record_id_fkey"
+            columns: ["record_id"]
+            isOneToOne: false
+            referencedRelation: "records"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      profiles: {
+        Row: {
+          community_id: string | null
+          created_at: string
+          display_name: string
+          email: string | null
+          id: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          community_id?: string | null
+          created_at?: string
+          display_name: string
+          email?: string | null
+          id?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          community_id?: string | null
+          created_at?: string
+          display_name?: string
+          email?: string | null
+          id?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "profiles_community_id_fkey"
+            columns: ["community_id"]
+            isOneToOne: false
+            referencedRelation: "communities"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      records: {
+        Row: {
+          community_id: string
+          created_at: string
+          created_by: string | null
+          first_name: string
+          grade_class: string | null
+          id: string
+          is_deleted: boolean
+          last_name: string
+          national_id: string
+          notes: string | null
+          risk_level: Database["public"]["Enums"]["risk_level"]
+          school: string | null
+          treatment_status:
+            | Database["public"]["Enums"]["treatment_status"]
+            | null
+          updated_at: string
+        }
+        Insert: {
+          community_id: string
+          created_at?: string
+          created_by?: string | null
+          first_name: string
+          grade_class?: string | null
+          id?: string
+          is_deleted?: boolean
+          last_name: string
+          national_id: string
+          notes?: string | null
+          risk_level?: Database["public"]["Enums"]["risk_level"]
+          school?: string | null
+          treatment_status?:
+            | Database["public"]["Enums"]["treatment_status"]
+            | null
+          updated_at?: string
+        }
+        Update: {
+          community_id?: string
+          created_at?: string
+          created_by?: string | null
+          first_name?: string
+          grade_class?: string | null
+          id?: string
+          is_deleted?: boolean
+          last_name?: string
+          national_id?: string
+          notes?: string | null
+          risk_level?: Database["public"]["Enums"]["risk_level"]
+          school?: string | null
+          treatment_status?:
+            | Database["public"]["Enums"]["treatment_status"]
+            | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "records_community_id_fkey"
+            columns: ["community_id"]
+            isOneToOne: false
+            referencedRelation: "communities"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      user_roles: {
+        Row: {
+          id: string
+          role: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Insert: {
+          id?: string
+          role: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Update: {
+          id?: string
+          role?: Database["public"]["Enums"]["app_role"]
+          user_id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      get_user_role: {
+        Args: { _user_id: string }
+        Returns: Database["public"]["Enums"]["app_role"]
+      }
+      has_role: {
+        Args: {
+          _role: Database["public"]["Enums"]["app_role"]
+          _user_id: string
+        }
+        Returns: boolean
+      }
     }
     Enums: {
-      [_ in never]: never
+      app_role: "admin" | "community_manager" | "tiferet_david"
+      risk_level:
+        | "classic"
+        | "needs_attention"
+        | "report_received"
+        | "needs_treatment"
+      treatment_status: "known" | "unknown"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -150,6 +377,15 @@ export type CompositeTypes<
 
 export const Constants = {
   public: {
-    Enums: {},
+    Enums: {
+      app_role: ["admin", "community_manager", "tiferet_david"],
+      risk_level: [
+        "classic",
+        "needs_attention",
+        "report_received",
+        "needs_treatment",
+      ],
+      treatment_status: ["known", "unknown"],
+    },
   },
 } as const
