@@ -14,6 +14,27 @@ export type Database = {
   }
   public: {
     Tables: {
+      app_settings: {
+        Row: {
+          id: string
+          key: string
+          updated_at: string | null
+          value: Json
+        }
+        Insert: {
+          id?: string
+          key: string
+          updated_at?: string | null
+          value?: Json
+        }
+        Update: {
+          id?: string
+          key?: string
+          updated_at?: string | null
+          value?: Json
+        }
+        Relationships: []
+      }
       communities: {
         Row: {
           created_at: string
@@ -34,6 +55,7 @@ export type Database = {
       }
       deletion_queue: {
         Row: {
+          deleted_from_excel: boolean
           id: string
           reason: string | null
           record_id: string
@@ -42,6 +64,7 @@ export type Database = {
           status: string
         }
         Insert: {
+          deleted_from_excel?: boolean
           id?: string
           reason?: string | null
           record_id: string
@@ -50,6 +73,7 @@ export type Database = {
           status?: string
         }
         Update: {
+          deleted_from_excel?: boolean
           id?: string
           reason?: string | null
           record_id?: string
