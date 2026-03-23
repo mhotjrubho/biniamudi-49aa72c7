@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useAuth } from "@/hooks/useAuth";
+import { Navigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -9,6 +10,10 @@ import { toast } from "sonner";
 import { Shield } from "lucide-react";
 
 export default function Login() {
+  const { user, loading: authLoading } = useAuth();
+
+  if (authLoading) return <div className="min-h-screen flex items-center justify-center text-muted-foreground">טוען...</div>;
+  if (user) return <Navigate to="/dashboard" replace />;
   const { signIn } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
