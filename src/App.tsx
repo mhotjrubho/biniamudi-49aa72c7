@@ -13,6 +13,7 @@ import Deletions from "./pages/Deletions";
 import HistoryLogs from "./pages/HistoryLogs";
 import UserManagement from "./pages/UserManagement";
 import Communities from "./pages/Communities";
+import Settings from "./pages/Settings";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();

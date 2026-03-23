@@ -30,6 +30,7 @@ const navItems: NavItem[] = [
   { label: "היסטוריה", href: "/history", icon: <History className="h-5 w-5" /> },
   { label: "ניהול משתמשים", href: "/users", icon: <Users className="h-5 w-5" />, roles: ["admin"] },
   { label: "קהילות", href: "/communities", icon: <Shield className="h-5 w-5" />, roles: ["admin"] },
+  { label: "הגדרות סנכרון", href: "/settings", icon: <Settings className="h-5 w-5" />, roles: ["admin"] },
 ];
 
 export function AppLayout({ children }: { children: ReactNode }) {
