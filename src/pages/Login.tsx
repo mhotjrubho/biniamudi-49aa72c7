@@ -17,10 +17,6 @@ export default function Login() {
 
   if (authLoading) return <div className="min-h-screen flex items-center justify-center text-muted-foreground">טוען...</div>;
   if (user) return <Navigate to="/dashboard" replace />;
-  const { signIn } = useAuth();
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [loading, setLoading] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
