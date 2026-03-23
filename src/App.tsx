@@ -13,6 +13,7 @@ import Deletions from "./pages/Deletions";
 import HistoryLogs from "./pages/HistoryLogs";
 import UserManagement from "./pages/UserManagement";
 import Communities from "./pages/Communities";
+import Settings from "./pages/Settings";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -41,6 +42,7 @@ const App = () => (
             <Route path="/history" element={<ProtectedRoute><HistoryLogs /></ProtectedRoute>} />
             <Route path="/users" element={<ProtectedRoute allowedRoles={["admin"]}><UserManagement /></ProtectedRoute>} />
             <Route path="/communities" element={<ProtectedRoute allowedRoles={["admin"]}><Communities /></ProtectedRoute>} />
+            <Route path="/settings" element={<ProtectedRoute allowedRoles={["admin"]}><Settings /></ProtectedRoute>} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </AuthProvider>
