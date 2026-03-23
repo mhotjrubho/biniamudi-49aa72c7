@@ -10,7 +10,10 @@ import { toast } from "sonner";
 import { Shield } from "lucide-react";
 
 export default function Login() {
-  const { user, loading: authLoading } = useAuth();
+  const { user, loading: authLoading, signIn } = useAuth();
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [loading, setLoading] = useState(false);
 
   if (authLoading) return <div className="min-h-screen flex items-center justify-center text-muted-foreground">טוען...</div>;
   if (user) return <Navigate to="/dashboard" replace />;
