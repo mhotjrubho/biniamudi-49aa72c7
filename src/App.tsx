@@ -42,6 +42,7 @@ const App = () => (
             <Route path="/history" element={<ProtectedRoute><HistoryLogs /></ProtectedRoute>} />
             <Route path="/users" element={<ProtectedRoute allowedRoles={["admin"]}><UserManagement /></ProtectedRoute>} />
             <Route path="/communities" element={<ProtectedRoute allowedRoles={["admin"]}><Communities /></ProtectedRoute>} />
+            <Route path="/settings" element={<ProtectedRoute allowedRoles={["admin"]}><Settings /></ProtectedRoute>} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </AuthProvider>
