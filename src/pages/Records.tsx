@@ -11,7 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
-import { Plus, Search, Download, Trash2 } from "lucide-react";
+import { Plus, Search, Download, Trash2, AlertTriangle } from "lucide-react";
 
 interface Record {
   id: string;
@@ -269,10 +269,10 @@ export default function Records() {
                   <TableHead>שם פרטי</TableHead>
                   <TableHead>שם משפחה</TableHead>
                   <TableHead>קהילה</TableHead>
-                  <TableHead>בית ספר</TableHead>
-                   <TableHead>כיתה</TableHead>
-                   <TableHead>טלפון</TableHead>
-                   <TableHead>רמת סיכון</TableHead>
+                  <TableHead>מוסד</TableHead>
+                  <TableHead>שיעור/כיתה</TableHead>
+                  <TableHead>טלפון</TableHead>
+                  <TableHead>רמת סיכון</TableHead>
                   {role === "tiferet_david" && <TableHead>סטטוס טיפול</TableHead>}
                   <TableHead>פעולות</TableHead>
                 </TableRow>
@@ -280,13 +280,13 @@ export default function Records() {
               <TableBody>
                 {loading ? (
                   <TableRow>
-                    <TableCell colSpan={role === "admin" ? 9 : 8} className="text-center py-12 text-muted-foreground">
+                    <TableCell colSpan={role === "admin" ? 10 : 9} className="text-center py-12 text-muted-foreground">
                       טוען...
                     </TableCell>
                   </TableRow>
                 ) : filtered.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={role === "admin" ? 9 : 8} className="text-center py-12 text-muted-foreground">
+                    <TableCell colSpan={role === "admin" ? 10 : 9} className="text-center py-12 text-muted-foreground">
                       לא נמצאו רשומות
                     </TableCell>
                   </TableRow>
@@ -300,7 +300,41 @@ export default function Records() {
                       <TableCell>{record.school || "-"}</TableCell>
                       <TableCell>{record.grade_class || "-"}</TableCell>
                       <TableCell dir="ltr">{record.phone || "-"}</TableCell>
-                      <TableCell><RiskBadge level={record.risk_level} /></TableCell>
+                      <TableCell>
+                        {role !== "tiferet_david" ? (
+                          <Select
+                            value={record.risk_level}
+                            onValueChange={async (v) => {
+                              const oldLevel = record.risk_level;
+                              await supabase.from("records").update({ risk_level: v as any }).eq("id", record.id);
+                              // Log the change
+                              const user = (await supabase.auth.getUser()).data.user;
+                              if (user) {
+                                await supabase.from("history_logs").insert({
+                                  record_id: record.id,
+                                  changed_by: user.id,
+                                  old_risk_level: oldLevel as any,
+                                  new_risk_level: v as any,
+                                });
+                              }
+                              fetchData();
+                              toast.success("רמת סיכון עודכנה");
+                            }}
+                          >
+                            <SelectTrigger className="w-36 h-8">
+                              <RiskBadge level={record.risk_level} />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="classic">קלאסי</SelectItem>
+                              <SelectItem value="needs_attention">דורש תשומת לב</SelectItem>
+                              <SelectItem value="report_received">התקבל דיווח</SelectItem>
+                              <SelectItem value="needs_treatment">דורש טיפול</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        ) : (
+                          <RiskBadge level={record.risk_level} />
+                        )}
+                      </TableCell>
                       {role === "tiferet_david" && (
                         <TableCell>
                           <Select
