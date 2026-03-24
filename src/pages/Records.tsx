@@ -299,6 +299,7 @@ export default function Records() {
                       <TableCell>{record.communities?.name}</TableCell>
                       <TableCell>{record.school || "-"}</TableCell>
                       <TableCell>{record.grade_class || "-"}</TableCell>
+                      <TableCell dir="ltr">{record.phone || "-"}</TableCell>
                       <TableCell><RiskBadge level={record.risk_level} /></TableCell>
                       {role === "tiferet_david" && (
                         <TableCell>
