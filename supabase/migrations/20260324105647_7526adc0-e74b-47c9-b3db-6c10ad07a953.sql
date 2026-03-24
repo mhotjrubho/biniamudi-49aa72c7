@@ -1,0 +1,2 @@
+ALTER TABLE public.records ADD COLUMN IF NOT EXISTS phone text DEFAULT NULL;
+ALTER TABLE public.records ADD COLUMN IF NOT EXISTS last_updated text DEFAULT NULL;

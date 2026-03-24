@@ -24,6 +24,7 @@ interface Record {
   risk_level: string;
   treatment_status: string | null;
   notes: string | null;
+  phone: string | null;
   communities?: { name: string };
 }
 
@@ -269,8 +270,9 @@ export default function Records() {
                   <TableHead>שם משפחה</TableHead>
                   <TableHead>קהילה</TableHead>
                   <TableHead>בית ספר</TableHead>
-                  <TableHead>כיתה</TableHead>
-                  <TableHead>רמת סיכון</TableHead>
+                   <TableHead>כיתה</TableHead>
+                   <TableHead>טלפון</TableHead>
+                   <TableHead>רמת סיכון</TableHead>
                   {role === "tiferet_david" && <TableHead>סטטוס טיפול</TableHead>}
                   <TableHead>פעולות</TableHead>
                 </TableRow>
@@ -297,6 +299,7 @@ export default function Records() {
                       <TableCell>{record.communities?.name}</TableCell>
                       <TableCell>{record.school || "-"}</TableCell>
                       <TableCell>{record.grade_class || "-"}</TableCell>
+                      <TableCell dir="ltr">{record.phone || "-"}</TableCell>
                       <TableCell><RiskBadge level={record.risk_level} /></TableCell>
                       {role === "tiferet_david" && (
                         <TableCell>

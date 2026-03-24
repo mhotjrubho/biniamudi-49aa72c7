@@ -5,35 +5,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
-import { Settings as SettingsIcon, RefreshCw, CheckCircle, AlertCircle, Loader2 } from "lucide-react";
-
-const DEFAULT_MAPPING = {
-  national_id: 0,
-  last_name: 1,
-  first_name: 2,
-  community_name: 3,
-  school: 4,
-  grade_class: 5,
-  risk_level: 6,
-  notes: 7,
-};
-
-const COLUMN_LABELS: Record<string, string> = {
-  national_id: "ת.ז.",
-  last_name: "שם משפחה",
-  first_name: "שם פרטי",
-  community_name: "קהילה",
-  school: "בית ספר",
-  grade_class: "כיתה",
-  risk_level: "רמת סיכון",
-  notes: "הערות",
-};
+import { Settings as SettingsIcon, RefreshCw, CheckCircle, AlertCircle, Loader2, Link as LinkIcon } from "lucide-react";
 
 export default function Settings() {
-  const [apiKey, setApiKey] = useState("");
-  const [sheetId, setSheetId] = useState("");
-  const [tabName, setTabName] = useState("Sheet1");
-  const [columnMapping, setColumnMapping] = useState(DEFAULT_MAPPING);
+  const [scriptUrl, setScriptUrl] = useState("");
   const [lastSync, setLastSync] = useState<any>(null);
   const [saving, setSaving] = useState(false);
   const [syncing, setSyncing] = useState(false);
@@ -53,10 +28,7 @@ export default function Settings() {
       data.forEach((s: any) => (config[s.key] = s.value));
 
       if (config.google_sheets) {
-        setApiKey(config.google_sheets.api_key || "");
-        setSheetId(config.google_sheets.sheet_id || "");
-        setTabName(config.google_sheets.tab_name || "Sheet1");
-        setColumnMapping(config.google_sheets.column_mapping || DEFAULT_MAPPING);
+        setScriptUrl(config.google_sheets.script_url || "");
       }
       if (config.last_sync) {
         setLastSync(config.last_sync);
@@ -69,12 +41,7 @@ export default function Settings() {
     const { error } = await supabase.from("app_settings").upsert(
       {
         key: "google_sheets",
-        value: {
-          api_key: apiKey,
-          sheet_id: sheetId,
-          tab_name: tabName,
-          column_mapping: columnMapping,
-        },
+        value: { script_url: scriptUrl },
         updated_at: new Date().toISOString(),
       },
       { onConflict: "key" }
@@ -91,16 +58,16 @@ export default function Settings() {
   const testConnection = async () => {
     setTesting(true);
     try {
-      const range = encodeURIComponent(tabName);
-      const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${range}?key=${apiKey}`;
-      const res = await fetch(url);
+      const res = await fetch(scriptUrl);
       if (res.ok) {
         const data = await res.json();
-        const rowCount = (data.values?.length || 1) - 1;
-        toast.success(`חיבור הצליח! נמצאו ${rowCount} שורות נתונים`);
+        if (data.success) {
+          toast.success(`חיבור הצליח! נמצאו ${data.data?.length || 0} רשומות`);
+        } else {
+          toast.error("הסקריפט החזיר שגיאה");
+        }
       } else {
-        const err = await res.json();
-        toast.error(`שגיאת חיבור: ${err.error?.message || "Unknown error"}`);
+        toast.error(`שגיאת חיבור: ${res.status}`);
       }
     } catch (e: any) {
       toast.error(`שגיאה: ${e.message}`);
@@ -124,7 +91,7 @@ export default function Settings() {
       );
       const data = await res.json();
       if (res.ok) {
-        toast.success(`סנכרון הושלם: ${data.synced} רשומות עודכנו, ${data.deleted} נמחקו`);
+        toast.success(`סנכרון הושלם: ${data.synced} רשומות עודכנו, ${data.deleted || 0} נמחקו, ${data.newCommunities || 0} קהילות חדשות`);
         loadSettings();
       } else {
         toast.error(`שגיאת סנכרון: ${data.error}`);
@@ -135,13 +102,6 @@ export default function Settings() {
     setSyncing(false);
   };
 
-  const updateMapping = (field: string, value: string) => {
-    const num = parseInt(value);
-    if (!isNaN(num) && num >= 0) {
-      setColumnMapping((prev) => ({ ...prev, [field]: num }));
-    }
-  };
-
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-bold animate-fade-in">הגדרות סנכרון Google Sheets</h1>
@@ -150,58 +110,25 @@ export default function Settings() {
       <Card className="shadow-md animate-slide-up">
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-lg">
-            <SettingsIcon className="h-5 w-5 text-primary" />
-            הגדרות חיבור
+            <LinkIcon className="h-5 w-5 text-primary" />
+            קישור לסקריפט Google Apps Script
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="apiKey">Google API Key</Label>
+            <Label htmlFor="scriptUrl">כתובת הסקריפט (URL)</Label>
             <Input
-              id="apiKey"
-              type="password"
-              value={apiKey}
-              onChange={(e) => setApiKey(e.target.value)}
-              placeholder="AIzaSy..."
+              id="scriptUrl"
+              value={scriptUrl}
+              onChange={(e) => setScriptUrl(e.target.value)}
+              placeholder="https://script.google.com/macros/s/.../exec"
               dir="ltr"
+              className="font-mono text-sm"
             />
             <p className="text-xs text-muted-foreground">
-              ניתן ליצור ב-{" "}
-              <a
-                href="https://console.cloud.google.com/apis/credentials"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-primary underline"
-              >
-                Google Cloud Console
-              </a>
-              {" "}→ Credentials → Create API Key. יש להפעיל Google Sheets API.
+              הכנס את כתובת ה-URL של Google Apps Script שמחזיר JSON עם נתוני הרשומות.
+              הסקריפט צריך להחזיר אובייקט עם שדה <code className="bg-muted px-1 rounded">success</code> ומערך <code className="bg-muted px-1 rounded">data</code>.
             </p>
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="sheetId">Sheet ID</Label>
-            <Input
-              id="sheetId"
-              value={sheetId}
-              onChange={(e) => setSheetId(e.target.value)}
-              placeholder="1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgVE2upms"
-              dir="ltr"
-            />
-            <p className="text-xs text-muted-foreground">
-              ה-ID נמצא בכתובת ה-URL של הגיליון: docs.google.com/spreadsheets/d/<strong>SHEET_ID</strong>/edit
-            </p>
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="tabName">שם הלשונית (Tab)</Label>
-            <Input
-              id="tabName"
-              value={tabName}
-              onChange={(e) => setTabName(e.target.value)}
-              placeholder="Sheet1"
-              dir="ltr"
-            />
           </div>
 
           <div className="flex gap-2 pt-2">
@@ -209,7 +136,7 @@ export default function Settings() {
               {saving && <Loader2 className="h-4 w-4 animate-spin ml-2" />}
               שמור הגדרות
             </Button>
-            <Button variant="outline" onClick={testConnection} disabled={testing || !apiKey || !sheetId}>
+            <Button variant="outline" onClick={testConnection} disabled={testing || !scriptUrl}>
               {testing && <Loader2 className="h-4 w-4 animate-spin ml-2" />}
               בדוק חיבור
             </Button>
@@ -217,35 +144,8 @@ export default function Settings() {
         </CardContent>
       </Card>
 
-      {/* Column Mapping */}
-      <Card className="shadow-md animate-slide-up" style={{ animationDelay: "100ms" }}>
-        <CardHeader>
-          <CardTitle className="text-lg">מיפוי עמודות</CardTitle>
-          <p className="text-sm text-muted-foreground">
-            ציין את מספר העמודה (0 = A, 1 = B, 2 = C...) עבור כל שדה
-          </p>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            {Object.entries(COLUMN_LABELS).map(([field, label]) => (
-              <div key={field} className="space-y-1">
-                <Label className="text-xs">{label}</Label>
-                <Input
-                  type="number"
-                  min={0}
-                  value={columnMapping[field as keyof typeof columnMapping]}
-                  onChange={(e) => updateMapping(field, e.target.value)}
-                  dir="ltr"
-                  className="text-center"
-                />
-              </div>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
-
       {/* Sync Control */}
-      <Card className="shadow-md animate-slide-up" style={{ animationDelay: "200ms" }}>
+      <Card className="shadow-md animate-slide-up" style={{ animationDelay: "100ms" }}>
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-lg">
             <RefreshCw className="h-5 w-5 text-primary" />
@@ -256,9 +156,9 @@ export default function Settings() {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm font-medium">סנכרון אוטומטי כל 10 דקות</p>
-              <p className="text-xs text-muted-foreground">הסנכרון מעדכן רשומות מהגיליון למערכת (חד-כיווני)</p>
+              <p className="text-xs text-muted-foreground">הסנכרון קורא נתונים מהגיליון ומעדכן את המערכת (חד-כיווני). קהילות חדשות נוצרות אוטומטית.</p>
             </div>
-            <Button onClick={triggerSync} disabled={syncing || !apiKey || !sheetId}>
+            <Button onClick={triggerSync} disabled={syncing || !scriptUrl}>
               {syncing ? <Loader2 className="h-4 w-4 animate-spin ml-2" /> : <RefreshCw className="h-4 w-4 ml-2" />}
               סנכרן עכשיו
             </Button>
@@ -297,27 +197,32 @@ export default function Settings() {
         </CardContent>
       </Card>
 
-      {/* Instructions */}
-      <Card className="shadow-md animate-slide-up border-primary/20" style={{ animationDelay: "300ms" }}>
+      {/* JSON Format */}
+      <Card className="shadow-md animate-slide-up border-primary/20" style={{ animationDelay: "200ms" }}>
         <CardHeader>
-          <CardTitle className="text-lg">הוראות הגדרה</CardTitle>
+          <CardTitle className="text-lg">פורמט JSON נדרש</CardTitle>
         </CardHeader>
         <CardContent className="text-sm space-y-3 text-muted-foreground">
-          <ol className="list-decimal list-inside space-y-2">
-            <li>
-              גשו ל-
-              <a href="https://console.cloud.google.com" target="_blank" rel="noopener noreferrer" className="text-primary underline mx-1">
-                Google Cloud Console
-              </a>
-              וצרו פרויקט חדש
-            </li>
-            <li>הפעילו את Google Sheets API בעמוד APIs & Services → Library</li>
-            <li>צרו API Key בעמוד Credentials → Create Credentials → API Key</li>
-            <li>שתפו את הגיליון שלכם כ-"Anyone with the link" (צפייה בלבד)</li>
-            <li>העתיקו את ה-Sheet ID מכתובת ה-URL והדביקו כאן</li>
-            <li>הגדירו את מיפוי העמודות לפי המבנה של הגיליון שלכם</li>
-            <li>בדקו את החיבור ושמרו</li>
-          </ol>
+          <p>הסקריפט צריך להחזיר JSON בפורמט הבא:</p>
+          <pre dir="ltr" className="bg-muted p-4 rounded-lg overflow-x-auto text-xs font-mono">{`{
+  "success": true,
+  "data": [
+    {
+      "national_id": "021908669",
+      "last_name": "ישראלי",
+      "first_name": "ישראל",
+      "phone": "0556779462",
+      "community": "שם הקהילה",
+      "school": "שם בית הספר",
+      "grade_class": "שיעור א",
+      "last_updated": ""
+    }
+  ]
+}`}</pre>
+          <p>
+            <strong>שדות נתמכים:</strong> national_id, last_name, first_name, phone, community, school, grade_class, last_updated
+          </p>
+          <p>קהילות שלא קיימות במערכת ייווצרו אוטומטית בסנכרון.</p>
         </CardContent>
       </Card>
     </div>
