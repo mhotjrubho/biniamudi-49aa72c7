@@ -270,8 +270,9 @@ export default function Records() {
                   <TableHead>שם משפחה</TableHead>
                   <TableHead>קהילה</TableHead>
                   <TableHead>בית ספר</TableHead>
-                  <TableHead>כיתה</TableHead>
-                  <TableHead>רמת סיכון</TableHead>
+                   <TableHead>כיתה</TableHead>
+                   <TableHead>טלפון</TableHead>
+                   <TableHead>רמת סיכון</TableHead>
                   {role === "tiferet_david" && <TableHead>סטטוס טיפול</TableHead>}
                   <TableHead>פעולות</TableHead>
                 </TableRow>
