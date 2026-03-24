@@ -11,7 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
-import { Plus, Search, Download, Trash2 } from "lucide-react";
+import { Plus, Search, Download, Trash2, AlertTriangle } from "lucide-react";
 
 interface Record {
   id: string;
