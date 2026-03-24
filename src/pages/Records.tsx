@@ -24,6 +24,7 @@ interface Record {
   risk_level: string;
   treatment_status: string | null;
   notes: string | null;
+  phone: string | null;
   communities?: { name: string };
 }
 
