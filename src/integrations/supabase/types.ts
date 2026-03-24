@@ -177,8 +177,10 @@ export type Database = {
           id: string
           is_deleted: boolean
           last_name: string
+          last_updated: string | null
           national_id: string
           notes: string | null
+          phone: string | null
           risk_level: Database["public"]["Enums"]["risk_level"]
           school: string | null
           treatment_status:
@@ -195,8 +197,10 @@ export type Database = {
           id?: string
           is_deleted?: boolean
           last_name: string
+          last_updated?: string | null
           national_id: string
           notes?: string | null
+          phone?: string | null
           risk_level?: Database["public"]["Enums"]["risk_level"]
           school?: string | null
           treatment_status?:
@@ -213,8 +217,10 @@ export type Database = {
           id?: string
           is_deleted?: boolean
           last_name?: string
+          last_updated?: string | null
           national_id?: string
           notes?: string | null
+          phone?: string | null
           risk_level?: Database["public"]["Enums"]["risk_level"]
           school?: string | null
           treatment_status?:
