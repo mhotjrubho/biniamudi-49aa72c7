@@ -1,4 +1,4 @@
-import { ReactNode, useState } from "react";
+import { ReactNode, useState, useMemo } from "react";
 import { Link, useLocation } from "react-router-dom";
 import {
   LayoutDashboard,
@@ -27,40 +27,35 @@ interface NavItem {
   roles?: string[];
 }
 
-const navItems: NavItem[] = [
-  { label: "לוח בקרה", href: "/dashboard", icon: <LayoutDashboard className="h-5 w-5" /> },
-  { label: "רשומות", href: "/records", icon: <FileText className="h-5 w-5" /> },
-  { label: "בקשות מחיקה", href: "/deletions", icon: <Trash2 className="h-5 w-5" />, roles: ["admin"] },
-  { label: "היסטוריה", href: "/history", icon: <History className="h-5 w-5" /> },
-  { label: "ניהול משתמשים", href: "/users", icon: <Users className="h-5 w-5" />, roles: ["admin"] },
-  { label: "קהילות", href: "/communities", icon: <Shield className="h-5 w-5" />, roles: ["admin"] },
-  { label: "הגדרות סנכרון", href: "/settings", icon: <Settings className="h-5 w-5" />, roles: ["admin"] },
-];
-
 export function AppLayout({ children }: { children: ReactNode }) {
-  const { role, profile, signOut } = useAuth();
+  const { user, role, signOut } = useAuth();
   const location = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
-  const filteredNav = navItems.filter(
-    (item) => !item.roles || (role && item.roles.includes(role))
-  );
+  const navLinks = useMemo(() => {
+    const baseNavLinks = [
+      { to: "/dashboard", label: "לוח בקרה", icon: <Home /> },
+      { to: "/records", label: "רשומות", icon: <FileText /> },
+      { to: "/history", label: "היסטוריה", icon: <History /> },
+    ];
 
-  const roleLabels: Record<string, string> = {
-    admin: "מנהל ראשי",
-    community_manager: "מנהל קהילה",
-    tiferet_david: "נציג תפארת דוד",
+    if (role === "admin") {
+      return [
+        ...baseNavLinks,
+        { to: "/deletions", label: "בקשות מחיקה", icon: <Shield /> },
+        { to: "/unresolved", label: "רשומות לטיפול", icon: <AlertCircle /> },
+        { to: "/communities", label: "קהילות", icon: <Anchor /> },
+        { to: "/users", label: "משתמשים", icon: <Users2 /> },
+        { to: "/settings", label: "הגדרות", icon: <Settings /> },
+      ];
+    }
+
+    return baseNavLinks;
+  }, [role]);
+
+  const handleSignOut = async () => {
+    await signOut();
   };
-
-  if (role === "admin") {
-    navItems.push(
-      { to: "/deletions", label: "בקשות מחיקה", icon: <Shield /> },
-      { to: "/unresolved", label: "רשומות לטיפול", icon: <AlertCircle /> },
-      { to: "/communities", label: "קהילות", icon: <Anchor /> },
-      { to: "/users", label: "משתמשים", icon: <Users2 /> },
-      { to: "/settings", label: "הגדרות", icon: <Settings /> }
-    );
-  }
 
   return (
     <div className="flex min-h-screen">
@@ -91,26 +86,23 @@ export function AppLayout({ children }: { children: ReactNode }) {
           </button>
         </div>
 
-        <nav className="flex-1 p-4 space-y-1">
-          {filteredNav.map((item) => {
-            const active = location.pathname === item.href;
-            return (
-              <Link
-                key={item.href}
-                to={item.href}
-                onClick={() => setSidebarOpen(false)}
-                className={cn(
-                  "flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-medium transition-all duration-200",
-                  active
-                    ? "bg-sidebar-primary text-sidebar-primary-foreground shadow-md"
-                    : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-                )}
-              >
-                {item.icon}
-                {item.label}
-              </Link>
-            );
-          })}
+        <nav className="grid items-start px-2 text-sm font-medium lg:px-4">
+          {navLinks.map((link) => (
+            <NavLink
+              key={link.to}
+              to={link.to}
+              onClick={() => setSidebarOpen(false)}
+              className={cn(
+                "flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-medium transition-all duration-200",
+                location.pathname === link.to
+                  ? "bg-sidebar-primary text-sidebar-primary-foreground shadow-md"
+                  : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+              )}
+            >
+              {link.icon}
+              {link.label}
+            </NavLink>
+          ))}
         </nav>
 
         <div className="p-4 border-t border-sidebar-border space-y-2">
@@ -118,7 +110,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
             {profile?.display_name || profile?.email}
           </div>
           <button
-            onClick={signOut}
+            onClick={handleSignOut}
             className="flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-medium text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground w-full transition-colors"
           >
             <LogOut className="h-5 w-5" />
