@@ -16,6 +16,7 @@ import Communities from "./pages/Communities";
 import Settings from "./pages/Settings";
 import NotFound from "./pages/NotFound";
 import UnresolvedRecords from "./pages/UnresolvedRecords";
+import ErrorBoundary from "./components/ErrorBoundary";
 
 const queryClient = new QueryClient();
 
@@ -34,19 +35,21 @@ const App = () => (
       <Sonner />
       <BrowserRouter>
         <AuthProvider>
-          <Routes>
-            <Route path="/" element={<Index />} />
-            <Route path="/login" element={<Login />} />
-            <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
-            <Route path="/records" element={<ProtectedRoute><Records /></ProtectedRoute>} />
-            <Route path="/deletions" element={<ProtectedRoute allowedRoles={["admin"]}><Deletions /></ProtectedRoute>} />
-            <Route path="/history" element={<ProtectedRoute><HistoryLogs /></ProtectedRoute>} />
-            <Route path="/users" element={<ProtectedRoute allowedRoles={["admin"]}><UserManagement /></ProtectedRoute>} />
-            <Route path="/communities" element={<ProtectedRoute allowedRoles={["admin"]}><Communities /></ProtectedRoute>} />
-            <Route path="/settings" element={<ProtectedRoute allowedRoles={["admin"]}><Settings /></ProtectedRoute>} />
-            <Route path="/unresolved" element={<ProtectedRoute allowedRoles={["admin"]}><UnresolvedRecords /></ProtectedRoute>} />
-            <Route path="*" element={<NotFound />} />
-          </Routes>
+          <ErrorBoundary>
+            <Routes>
+              <Route path="/" element={<Index />} />
+              <Route path="/login" element={<Login />} />
+              <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+              <Route path="/records" element={<ProtectedRoute><Records /></ProtectedRoute>} />
+              <Route path="/deletions" element={<ProtectedRoute allowedRoles={["admin"]}><Deletions /></ProtectedRoute>} />
+              <Route path="/history" element={<ProtectedRoute><HistoryLogs /></ProtectedRoute>} />
+              <Route path="/users" element={<ProtectedRoute allowedRoles={["admin"]}><UserManagement /></ProtectedRoute>} />
+              <Route path="/communities" element={<ProtectedRoute allowedRoles={["admin"]}><Communities /></ProtectedRoute>} />
+              <Route path="/settings" element={<ProtectedRoute allowedRoles={["admin"]}><Settings /></ProtectedRoute>} />
+              <Route path="/unresolved" element={<ProtectedRoute allowedRoles={["admin"]}><UnresolvedRecords /></ProtectedRoute>} />
+              <Route path="*" element={<NotFound />} />
+            </Routes>
+          </ErrorBoundary>
         </AuthProvider>
       </BrowserRouter>
     </TooltipProvider>
