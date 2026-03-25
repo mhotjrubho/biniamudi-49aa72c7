@@ -132,7 +132,8 @@ export default function Records() {
       }
     }
 
-    // Also fetch community_notes count for the indicator icon
+    // Also fetch community_notes count for the indicator icon, but only for roles that can see them.
+    if (role === 'admin' || role === 'tiferet_david') {
      const { data: communityNotesData } = await supabase
         .from('community_notes')
         .select('record_id, id');
@@ -151,6 +152,7 @@ export default function Records() {
           community_notes: notesMap.get(record.id) || []
         }));
       }
+    }
 
     setRecords(finalRecords);
     setCommunities(communitiesData || []);

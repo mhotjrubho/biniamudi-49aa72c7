@@ -42,29 +42,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     setLoading(true);
-    const getInitialSession = async () => {
-      const { data: { session }, error } = await supabase.auth.getSession();
-
-      if (session?.user) {
-        await fetchUserData(session.user.id);
+    const getSession = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
         setSession(session);
-        setUser(session.user);
+        setUser(session?.user ?? null);
+        if (session?.user) {
+          await fetchUserData(session.user.id);
+        }
+      } catch (e) {
+        console.error("Error getting session:", e);
+      } finally {
+        setLoading(false);
       }
-      setLoading(false);
     };
-
-    getInitialSession();
+    getSession();
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (_event, session) => {
-        // This now only reacts to actual sign-in/sign-out events
-        if (_event === 'SIGNED_IN' && session?.user) {
+      async (event, session) => {
+        setSession(session);
+        setUser(session?.user ?? null);
+        if (event === 'SIGNED_IN' && session?.user) {
           await fetchUserData(session.user.id);
-          setSession(session);
-          setUser(session.user);
-        } else if (_event === 'SIGNED_OUT') {
-          setSession(null);
-          setUser(null);
+        } else if (event === 'SIGNED_OUT') {
           setRole(null);
           setProfile(null);
         }
