@@ -60,11 +60,15 @@ Deno.serve(async (req) => {
   let synced = 0;
   let errors = 0;
   let newCommunities = 0;
+  let skipped = 0; // Add a counter for skipped rows
   const errorDetails: string[] = [];
 
   for (const row of rows) {
     const nationalId = row.national_id?.toString().trim();
-    if (!nationalId) continue;
+    if (!nationalId) {
+      skipped++; // Increment skipped counter
+      continue;
+    }
 
     const communityName = row.community?.toString().trim() || '';
     let communityId = communityMap[communityName];
@@ -133,11 +137,11 @@ Deno.serve(async (req) => {
   // Update last sync timestamp
   await supabaseAdmin.from('app_settings').upsert({
     key: 'last_sync',
-    value: { timestamp: new Date().toISOString(), synced, errors, deleted, newCommunities },
+    value: { timestamp: new Date().toISOString(), total_rows: rows.length, synced, errors, skipped, deleted, newCommunities },
     updated_at: new Date().toISOString(),
   }, { onConflict: 'key' });
 
-  return new Response(JSON.stringify({ synced, errors, deleted, newCommunities, errorDetails }), {
+  return new Response(JSON.stringify({ total_rows: rows.length, synced, skipped, errors, deleted, newCommunities, errorDetails }), {
     headers: { ...corsHeaders, 'Content-Type': 'application/json' }
   });
 });
