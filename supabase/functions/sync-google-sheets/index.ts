@@ -115,6 +115,7 @@ Deno.serve(async (req) => {
     if (existing) {
       await supabaseAdmin.from('records').update(record).eq('id', existing.id);
     } else {
+      record.is_deleted = false; // Explicitly set new records as not deleted
       await supabaseAdmin.from('records').insert(record);
     }
     synced++;
