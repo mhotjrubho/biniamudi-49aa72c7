@@ -42,37 +42,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     setLoading(true);
-    const getSession = async () => {
-      try {
-        const { data: { session } } = await supabase.auth.getSession();
-        setSession(session);
-        setUser(session?.user ?? null);
-        if (session?.user) {
-          await fetchUserData(session.user.id);
-        }
-      } catch (e) {
-        console.error("Error getting session:", e);
-      } finally {
-        setLoading(false);
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      setSession(session);
+      setUser(session?.user ?? null);
+      if (session?.user) {
+        // If there's a user, fetch their profile and role
+        await fetchUserData(session.user.id);
+      } else {
+        // Clear role and profile if user is logged out
+        setRole(null);
+        setProfile(null);
       }
+      // Set loading to false only after all user data has been fetched (or cleared)
+      setLoading(false);
+    });
+
+    return () => {
+      subscription.unsubscribe();
     };
-    getSession();
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (event, session) => {
-        setSession(session);
-        setUser(session?.user ?? null);
-        if (event === 'SIGNED_IN' && session?.user) {
-          await fetchUserData(session.user.id);
-        } else if (event === 'SIGNED_OUT') {
-          setRole(null);
-          setProfile(null);
-        }
-      }
-    );
-
-    return () => subscription.unsubscribe();
-  }, []);
+  }, []); // Run only once on component mount
 
   const signIn = async (email: string, password: string) => {
     const { error } = await supabase.auth.signInWithPassword({ email, password });
