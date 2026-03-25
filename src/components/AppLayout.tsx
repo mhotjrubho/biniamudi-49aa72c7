@@ -27,8 +27,14 @@ interface NavItem {
   roles?: string[];
 }
 
+const roleLabels: Record<string, string> = {
+  admin: "מנהל ראשי",
+  community_manager: "מנהל קהילה",
+  tiferet_david: "נציג תפארת דוד",
+};
+
 export function AppLayout({ children }: { children: ReactNode }) {
-  const { user, role, signOut } = useAuth();
+  const { user, role, profile, signOut } = useAuth();
   const location = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
