@@ -4,8 +4,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { Settings as SettingsIcon, RefreshCw, CheckCircle, AlertCircle, Loader2, Link as LinkIcon } from "lucide-react";
+import { RefreshCw, CheckCircle, AlertCircle, Loader2, Link as LinkIcon, Trash2 } from "lucide-react";
 
 export default function Settings() {
   const [scriptUrl, setScriptUrl] = useState("");
@@ -13,59 +14,42 @@ export default function Settings() {
   const [saving, setSaving] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [testing, setTesting] = useState(false);
+  const [resetting, setResetting] = useState(false);
+  const [resetDialogOpen, setResetDialogOpen] = useState(false);
 
   useEffect(() => {
     loadSettings();
   }, []);
 
   const loadSettings = async () => {
-    const { data } = await supabase
-      .from("app_settings")
-      .select("key, value");
-
+    const { data } = await supabase.from("app_settings").select("key, value");
     if (data) {
       const config: Record<string, any> = {};
       data.forEach((s: any) => (config[s.key] = s.value));
-
-      if (config.google_sheets) {
-        setScriptUrl(config.google_sheets.script_url || "");
-      }
-      if (config.last_sync) {
-        setLastSync(config.last_sync);
-      }
+      if (config.google_sheets) setScriptUrl(config.google_sheets.script_url || "");
+      if (config.last_sync) setLastSync(config.last_sync);
     }
   };
 
   const saveSettings = async () => {
     setSaving(true);
     const { error } = await supabase.from("app_settings").upsert(
-      {
-        key: "google_sheets",
-        value: { script_url: scriptUrl },
-        updated_at: new Date().toISOString(),
-      },
+      { key: "google_sheets", value: { script_url: scriptUrl.trim() }, updated_at: new Date().toISOString() },
       { onConflict: "key" }
     );
-
-    if (error) {
-      toast.error("שגיאה בשמירת ההגדרות");
-    } else {
-      toast.success("ההגדרות נשמרו בהצלחה");
-    }
+    toast[error ? "error" : "success"](error ? "שגיאה בשמירת ההגדרות" : "ההגדרות נשמרו בהצלחה");
     setSaving(false);
   };
 
   const testConnection = async () => {
+    if (!scriptUrl.trim()) return;
     setTesting(true);
     try {
-      const res = await fetch(scriptUrl);
+      const res = await fetch(scriptUrl.trim());
       if (res.ok) {
         const data = await res.json();
-        if (data.success) {
-          toast.success(`חיבור הצליח! נמצאו ${data.data?.length || 0} רשומות`);
-        } else {
-          toast.error("הסקריפט החזיר שגיאה");
-        }
+        if (data.success) toast.success(`חיבור הצליח! נמצאו ${data.data?.length || 0} רשומות`);
+        else toast.error("הסקריפט החזיר שגיאה");
       } else {
         toast.error(`שגיאת חיבור: ${res.status}`);
       }
@@ -91,7 +75,7 @@ export default function Settings() {
       );
       const data = await res.json();
       if (res.ok) {
-        toast.success(`סנכרון הושלם: ${data.synced} רשומות עודכנו, ${data.deleted || 0} נמחקו, ${data.newCommunities || 0} קהילות חדשות`);
+        toast.success(`סנכרון הושלם: ${data.synced} עודכנו, ${data.deleted || 0} נמחקו, ${data.newCommunities || 0} קהילות חדשות`);
         loadSettings();
       } else {
         toast.error(`שגיאת סנכרון: ${data.error}`);
@@ -102,16 +86,49 @@ export default function Settings() {
     setSyncing(false);
   };
 
+  const handleReset = async () => {
+    setResetting(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        toast.error("יש להתחבר מחדש");
+        setResetting(false);
+        return;
+      }
+      const projectId = import.meta.env.VITE_SUPABASE_PROJECT_ID;
+      const res = await fetch(
+        `https://${projectId}.supabase.co/functions/v1/reset-data`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${session.access_token}`,
+          },
+        }
+      );
+      const data = await res.json();
+      if (res.ok && data.success) {
+        toast.success("כל הנתונים אופסו בהצלחה");
+        setResetDialogOpen(false);
+      } else {
+        toast.error(data.error || "שגיאה באיפוס");
+      }
+    } catch (e: any) {
+      toast.error(`שגיאה: ${e.message}`);
+    }
+    setResetting(false);
+  };
+
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold animate-fade-in">הגדרות סנכרון Google Sheets</h1>
+      <h1 className="text-2xl font-bold animate-fade-in">הגדרות</h1>
 
       {/* Connection Settings */}
-      <Card className="shadow-md animate-slide-up">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-lg">
+      <Card className="shadow-sm animate-slide-up">
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-2 text-base">
             <LinkIcon className="h-5 w-5 text-primary" />
-            קישור לסקריפט Google Apps Script
+            קישור Google Apps Script
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -125,19 +142,14 @@ export default function Settings() {
               dir="ltr"
               className="font-mono text-sm"
             />
-            <p className="text-xs text-muted-foreground">
-              הכנס את כתובת ה-URL של Google Apps Script שמחזיר JSON עם נתוני הרשומות.
-              הסקריפט צריך להחזיר אובייקט עם שדה <code className="bg-muted px-1 rounded">success</code> ומערך <code className="bg-muted px-1 rounded">data</code>.
-            </p>
           </div>
-
-          <div className="flex gap-2 pt-2">
-            <Button onClick={saveSettings} disabled={saving}>
-              {saving && <Loader2 className="h-4 w-4 animate-spin ml-2" />}
-              שמור הגדרות
+          <div className="flex gap-2">
+            <Button onClick={saveSettings} disabled={saving} size="sm">
+              {saving && <Loader2 className="h-4 w-4 animate-spin ml-1" />}
+              שמור
             </Button>
-            <Button variant="outline" onClick={testConnection} disabled={testing || !scriptUrl}>
-              {testing && <Loader2 className="h-4 w-4 animate-spin ml-2" />}
+            <Button variant="outline" onClick={testConnection} disabled={testing || !scriptUrl.trim()} size="sm">
+              {testing && <Loader2 className="h-4 w-4 animate-spin ml-1" />}
               בדוק חיבור
             </Button>
           </div>
@@ -145,84 +157,75 @@ export default function Settings() {
       </Card>
 
       {/* Sync Control */}
-      <Card className="shadow-md animate-slide-up" style={{ animationDelay: "100ms" }}>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-lg">
+      <Card className="shadow-sm animate-slide-up" style={{ animationDelay: "80ms", animationFillMode: "both" }}>
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-2 text-base">
             <RefreshCw className="h-5 w-5 text-primary" />
             סנכרון
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium">סנכרון אוטומטי כל 10 דקות</p>
-              <p className="text-xs text-muted-foreground">הסנכרון קורא נתונים מהגיליון ומעדכן את המערכת (חד-כיווני). קהילות חדשות נוצרות אוטומטית.</p>
-            </div>
-            <Button onClick={triggerSync} disabled={syncing || !scriptUrl}>
-              {syncing ? <Loader2 className="h-4 w-4 animate-spin ml-2" /> : <RefreshCw className="h-4 w-4 ml-2" />}
+            <p className="text-sm text-muted-foreground">קריאה חד-כיוונית מהגיליון. קהילות חדשות נוצרות אוטומטית.</p>
+            <Button onClick={triggerSync} disabled={syncing || !scriptUrl.trim()} size="sm">
+              {syncing ? <Loader2 className="h-4 w-4 animate-spin ml-1" /> : <RefreshCw className="h-4 w-4 ml-1" />}
               סנכרן עכשיו
             </Button>
           </div>
 
           {lastSync && (
-            <div className="bg-muted rounded-lg p-4 space-y-2">
+            <div className="bg-muted rounded-lg p-3 space-y-2 text-sm">
               <div className="flex items-center gap-2">
-                {lastSync.errors > 0 ? (
-                  <AlertCircle className="h-4 w-4 text-warning" />
-                ) : (
-                  <CheckCircle className="h-4 w-4 text-success" />
-                )}
-                <span className="font-medium text-sm">סנכרון אחרון</span>
+                {lastSync.errors > 0 ? <AlertCircle className="h-4 w-4 text-warning" /> : <CheckCircle className="h-4 w-4 text-success" />}
+                <span className="font-medium">סנכרון אחרון: {new Date(lastSync.timestamp).toLocaleString("he-IL")}</span>
               </div>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-sm">
-                <div>
-                  <span className="text-muted-foreground">תאריך: </span>
-                  {new Date(lastSync.timestamp).toLocaleString("he-IL")}
-                </div>
-                <div>
-                  <span className="text-muted-foreground">עודכנו: </span>
-                  {lastSync.synced}
-                </div>
-                <div>
-                  <span className="text-muted-foreground">שגיאות: </span>
-                  {lastSync.errors}
-                </div>
-                <div>
-                  <span className="text-muted-foreground">נמחקו: </span>
-                  {lastSync.deleted}
-                </div>
+              <div className="flex gap-4 text-muted-foreground">
+                <span>עודכנו: {lastSync.synced}</span>
+                <span>שגיאות: {lastSync.errors}</span>
+                <span>נמחקו: {lastSync.deleted || 0}</span>
               </div>
             </div>
           )}
         </CardContent>
       </Card>
 
-      {/* JSON Format */}
-      <Card className="shadow-md animate-slide-up border-primary/20" style={{ animationDelay: "200ms" }}>
-        <CardHeader>
-          <CardTitle className="text-lg">פורמט JSON נדרש</CardTitle>
+      {/* Reset Data */}
+      <Card className="shadow-sm border-destructive/30 animate-slide-up" style={{ animationDelay: "160ms", animationFillMode: "both" }}>
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-2 text-base text-destructive">
+            <Trash2 className="h-5 w-5" />
+            איפוס נתונים
+          </CardTitle>
         </CardHeader>
-        <CardContent className="text-sm space-y-3 text-muted-foreground">
-          <p>הסקריפט צריך להחזיר JSON בפורמט הבא:</p>
-          <pre dir="ltr" className="bg-muted p-4 rounded-lg overflow-x-auto text-xs font-mono">{`{
-  "success": true,
-  "data": [
-    {
-      "national_id": "021908669",
-      "last_name": "ישראלי",
-      "first_name": "ישראל",
-      "phone": "0556779462",
-      "community": "שם הקהילה",
-      "school": "שם בית הספר",
-      "grade_class": "שיעור א",
-      "last_updated": ""
-    }
-  ]
-}`}</pre>
-          <p>
-            <strong>שדות נתמכים:</strong> national_id, last_name, first_name, phone, community, school, grade_class, last_updated
+        <CardContent>
+          <p className="text-sm text-muted-foreground mb-4">
+            מחיקת כל הרשומות, קהילות, היסטוריה ובקשות מחיקה. ההגדרות וחשבונות המשתמשים יישמרו.
           </p>
-          <p>קהילות שלא קיימות במערכת ייווצרו אוטומטית בסנכרון.</p>
+          <Dialog open={resetDialogOpen} onOpenChange={setResetDialogOpen}>
+            <DialogTrigger asChild>
+              <Button variant="destructive" size="sm">
+                <Trash2 className="h-4 w-4 ml-1" />
+                אפס את כל הנתונים
+              </Button>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle className="text-destructive">אישור איפוס נתונים</DialogTitle>
+              </DialogHeader>
+              <p className="text-sm text-muted-foreground">
+                פעולה זו תמחק את כל הרשומות, הקהילות, היסטוריית השינויים ובקשות המחיקה.
+                <br />
+                <strong>פעולה זו בלתי הפיכה!</strong>
+              </p>
+              <DialogFooter className="gap-2">
+                <Button variant="outline" onClick={() => setResetDialogOpen(false)}>ביטול</Button>
+                <Button variant="destructive" onClick={handleReset} disabled={resetting}>
+                  {resetting && <Loader2 className="h-4 w-4 animate-spin ml-1" />}
+                  אפס הכל
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
         </CardContent>
       </Card>
     </div>

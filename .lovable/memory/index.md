@@ -6,11 +6,14 @@ National ID (T.Z.) is the unique identifier for records
 Managers cannot see national_id field, only admins can
 Tiferet David reps see only needs_treatment records
 Soft delete: managers request, admin approves via deletion_queue
-Google Sheets sync: one-way (Script→DB), every 10 min, uses Google Apps Script URL (not API key)
+Google Sheets sync: one-way (Script→DB), uses Google Apps Script URL (not API key)
 Script URL stored in app_settings under google_sheets.script_url
 JSON format: {success: true, data: [{national_id, last_name, first_name, phone, community, school, grade_class, last_updated}]}
 Communities auto-created during sync if not existing
 Deletion flow: approve → mark deleted_from_excel → auto-delete on next sync
 Admin credentials: admin@community-system.com / Admin2026!
-Edge functions: seed-admin, sync-google-sheets, manage-users
-Records table has: phone, last_updated columns added
+Edge functions: seed-admin, sync-google-sheets, manage-users, reset-data
+Records table has: phone, last_updated, td_notes columns
+Column labels: ישיבה (school), שיעור (grade_class) — NOT בית ספר/כיתה
+td_notes: visible only to admin and tiferet_david roles
+Reset-data: deletes records, communities, history_logs, deletion_queue (keeps settings + users)

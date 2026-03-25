@@ -183,6 +183,7 @@ export type Database = {
           phone: string | null
           risk_level: Database["public"]["Enums"]["risk_level"]
           school: string | null
+          td_notes: string | null
           treatment_status:
             | Database["public"]["Enums"]["treatment_status"]
             | null
@@ -203,6 +204,7 @@ export type Database = {
           phone?: string | null
           risk_level?: Database["public"]["Enums"]["risk_level"]
           school?: string | null
+          td_notes?: string | null
           treatment_status?:
             | Database["public"]["Enums"]["treatment_status"]
             | null
@@ -223,6 +225,7 @@ export type Database = {
           phone?: string | null
           risk_level?: Database["public"]["Enums"]["risk_level"]
           school?: string | null
+          td_notes?: string | null
           treatment_status?:
             | Database["public"]["Enums"]["treatment_status"]
             | null
