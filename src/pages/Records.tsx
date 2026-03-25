@@ -81,22 +81,43 @@ export default function Records() {
 
   const fetchData = useCallback(async () => {
     setLoading(true);
-    const [recordsRes, communitiesRes] = await Promise.all([
-      supabase
+    let query = supabase
+      .from("records")
+      .select("*, communities(name)")
+      .eq("is_deleted", false)
+      .order("created_at", { ascending: false });
+
+    // Only fetch community_notes if user has permission to see them
+    if (role === 'admin' || role === 'tiferet_david') {
+      query = supabase
         .from("records")
         .select("*, communities(name), community_notes(id)")
         .eq("is_deleted", false)
-        .order("created_at", { ascending: false }),
+        .order("created_at", { ascending: false });
+    }
+
+    const [recordsRes, communitiesRes] = await Promise.all([
+      query,
       supabase.from("communities").select("*"),
     ]);
+
+    if (recordsRes.error) {
+      console.error("Error fetching records:", recordsRes.error);
+      toast.error("שגיאה בטעינת הרשומות: " + recordsRes.error.message);
+      setLoading(false);
+      return;
+    }
+
     setRecords((recordsRes.data as any[]) || []);
     setCommunities(communitiesRes.data || []);
     setLoading(false);
-  }, []);
+  }, [role]); // Add role as a dependency
 
   useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+    if (user) { // Ensure user is loaded before fetching data
+      fetchData();
+    }
+  }, [user, fetchData]);
 
   const handleAdd = async () => {
     if (!form.national_id || !form.last_name || !form.first_name || !form.community_id) {
