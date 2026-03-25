@@ -81,37 +81,51 @@ export default function Records() {
 
   const fetchData = useCallback(async () => {
     setLoading(true);
-    let query = supabase
+    
+    // Step 1: Always fetch the main records data. This query is safe for all roles.
+    const { data: recordsData, error: recordsError } = await supabase
       .from("records")
       .select("*, communities(name)")
       .eq("is_deleted", false)
       .order("created_at", { ascending: false });
 
-    // Only fetch community_notes if user has permission to see them
-    if (role === 'admin' || role === 'tiferet_david') {
-      query = supabase
-        .from("records")
-        .select("*, communities(name), community_notes(id)")
-        .eq("is_deleted", false)
-        .order("created_at", { ascending: false });
-    }
-
-    const [recordsRes, communitiesRes] = await Promise.all([
-      query,
-      supabase.from("communities").select("*"),
-    ]);
-
-    if (recordsRes.error) {
-      console.error("Error fetching records:", recordsRes.error);
-      toast.error("שגיאה בטעינת הרשומות: " + recordsRes.error.message);
+    const { data: communitiesData } = await supabase.from("communities").select("*");
+    
+    if (recordsError) {
+      console.error("Error fetching records:", recordsError);
+      toast.error("שגיאה בטעינת הרשומות: " + recordsError.message);
       setLoading(false);
       return;
     }
+    
+    let finalRecords: Record[] = (recordsData as any[]) || [];
 
-    setRecords((recordsRes.data as any[]) || []);
-    setCommunities(communitiesRes.data || []);
+    // Step 2: If the user has permissions, fetch notes and enrich the records data.
+    if (role === 'admin' || role === 'tiferet_david') {
+      const { data: notesData } = await supabase
+        .from('community_notes')
+        .select('record_id, id');
+      
+      if (notesData) {
+        const notesMap = new Map<string, any[]>();
+        notesData.forEach(note => {
+          if (!notesMap.has(note.record_id)) {
+            notesMap.set(note.record_id, []);
+          }
+          notesMap.get(note.record_id)?.push({ id: note.id });
+        });
+
+        finalRecords = finalRecords.map(record => ({
+          ...record,
+          community_notes: notesMap.get(record.id) || []
+        }));
+      }
+    }
+
+    setRecords(finalRecords);
+    setCommunities(communitiesData || []);
     setLoading(false);
-  }, [role]); // Add role as a dependency
+  }, [role, user]); // Add user dependency
 
   useEffect(() => {
     if (user) { // Ensure user is loaded before fetching data
