@@ -75,13 +75,30 @@ export default function Settings() {
       );
       const data = await res.json();
       if (res.ok) {
-        toast.success(`סנכרון הושלם: ${data.synced} עודכנו, ${data.deleted || 0} נמחקו, ${data.newCommunities || 0} קהילות חדשות`);
+        const skipped = data.skipped || 0;
+        const total = data.total_rows || (data.synced + skipped);
+        const details = `סה״כ שורות: ${total} | סונכרנו: ${data.synced} | דולגו: ${skipped}`;
+        const summary = `סנכרון הושלם: ${data.synced} עודכנו`;
+
+        if (skipped > 0) {
+          toast.warning("סנכרון הושלם עם שורות שדולגו", {
+            description: "חלק מהשורות דולגו עקב חוסר במספר ת.ז.",
+            action: {
+              label: "הצג פרטים",
+              onClick: () => toast.info(details),
+            },
+          });
+        } else {
+          toast.success(summary, {
+            description: details,
+          });
+        }
         loadSettings();
       } else {
-        toast.error(`שגיאת סנכרון: ${data.error}`);
+        toast.error(`שגיאת סנכרון: ${data.error || 'לא ידוע'}`);
       }
     } catch (e: any) {
-      toast.error(`שגיאה: ${e.message}`);
+      toast.error(`שגיאה בביצוע הבקשה: ${e.message}`);
     }
     setSyncing(false);
   };
@@ -180,7 +197,9 @@ export default function Settings() {
                 <span className="font-medium">סנכרון אחרון: {new Date(lastSync.timestamp).toLocaleString("he-IL")}</span>
               </div>
               <div className="flex gap-4 text-muted-foreground">
+                <span>סה״כ: {lastSync.total_rows || lastSync.synced + (lastSync.skipped || 0)}</span>
                 <span>עודכנו: {lastSync.synced}</span>
+                {lastSync.skipped > 0 && <span className="text-warning">דולגו: {lastSync.skipped}</span>}
                 <span>שגיאות: {lastSync.errors}</span>
                 <span>נמחקו: {lastSync.deleted || 0}</span>
               </div>

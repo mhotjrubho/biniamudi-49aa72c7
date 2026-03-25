@@ -31,6 +31,17 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { formatDistanceToNow } from 'date-fns';
+import { he } from 'date-fns/locale';
+
+interface Note {
+  id: string;
+  created_at: string;
+  note: string;
+  profiles?: { display_name: string } | null;
+}
 
 interface Record {
   id: string;
@@ -42,11 +53,10 @@ interface Record {
   grade_class: string | null;
   risk_level: string;
   treatment_status: string | null;
-  notes: string | null;
-  td_notes: string | null;
   phone: string | null;
   communities?: { name: string };
   community_notes?: { id: string }[];
+  td_notes?: Note[];
 }
 
 interface Community {
@@ -62,9 +72,9 @@ export default function Records() {
   const [filterCommunity, setFilterCommunity] = useState("all");
   const [filterRisk, setFilterRisk] = useState("all");
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [notesDialog, setNotesDialog] = useState<{ open: boolean; record: Record | null }>({ open: false, record: null });
+  const [notesDialog, setNotesDialog] = useState<{ open: boolean; record: Record | null; notes: Note[] }>({ open: false, record: null, notes: [] });
   const [communityNoteDialog, setCommunityNoteDialog] = useState<{ open: boolean; record: Record | null }>({ open: false, record: null });
-  const [tdNoteText, setTdNoteText] = useState("");
+  const [newNoteText, setNewNoteText] = useState("");
   const [communityNoteText, setCommunityNoteText] = useState("");
   const [loading, setLoading] = useState(true);
 
@@ -82,7 +92,7 @@ export default function Records() {
   const fetchData = useCallback(async () => {
     setLoading(true);
     
-    // Step 1: Always fetch the main records data. This query is safe for all roles.
+    // Step 1: Always fetch the main records data.
     const { data: recordsData, error: recordsError } = await supabase
       .from("records")
       .select("*, communities(name)")
@@ -100,15 +110,36 @@ export default function Records() {
     
     let finalRecords: Record[] = (recordsData as any[]) || [];
 
-    // Step 2: If the user has permissions, fetch notes and enrich the records data.
+    // Step 2: If the user has permissions, fetch all notes and enrich the records data.
     if (role === 'admin' || role === 'tiferet_david') {
       const { data: notesData } = await supabase
-        .from('community_notes')
-        .select('record_id, id');
+        .from('td_notes')
+        .select('*, profiles(display_name)');
       
       if (notesData) {
         const notesMap = new Map<string, any[]>();
         notesData.forEach(note => {
+          if (!notesMap.has(note.record_id)) {
+            notesMap.set(note.record_id, []);
+          }
+          notesMap.get(note.record_id)?.push(note);
+        });
+
+        finalRecords = finalRecords.map(record => ({
+          ...record,
+          td_notes: notesMap.get(record.id) || []
+        }));
+      }
+    }
+
+    // Also fetch community_notes count for the indicator icon
+     const { data: communityNotesData } = await supabase
+        .from('community_notes')
+        .select('record_id, id');
+      
+      if (communityNotesData) {
+        const notesMap = new Map<string, any[]>();
+        communityNotesData.forEach(note => {
           if (!notesMap.has(note.record_id)) {
             notesMap.set(note.record_id, []);
           }
@@ -120,7 +151,6 @@ export default function Records() {
           community_notes: notesMap.get(record.id) || []
         }));
       }
-    }
 
     setRecords(finalRecords);
     setCommunities(communitiesData || []);
@@ -199,30 +229,38 @@ export default function Records() {
   };
 
   const openNotesDialog = (record: Record) => {
-    setNotesDialog({ open: true, record });
-    setTdNoteText(record.td_notes || "");
+    setNotesDialog({ open: true, record, notes: record.td_notes || [] });
+    setNewNoteText("");
   };
 
-  const saveNotes = async () => {
-    if (!notesDialog.record) return;
-    const { error } = await supabase
-      .from("records")
-      .update({ td_notes: tdNoteText.trim() || null })
-      .eq("id", notesDialog.record.id);
+  const saveNewNote = async () => {
+    if (!notesDialog.record || !newNoteText.trim() || !user) return;
+
+    const { data: newNote, error } = await supabase
+      .from("td_notes")
+      .insert({
+        record_id: notesDialog.record.id,
+        user_id: user.id,
+        note: newNoteText.trim(),
+      })
+      .select('*, profiles(display_name)')
+      .single();
+
     if (error) {
       toast.error("שגיאה בשמירת הערה");
       return;
     }
-    setRecords((prev) =>
-      prev.map((r) => r.id === notesDialog.record!.id ? { ...r, td_notes: tdNoteText.trim() || null } : r)
-    );
-    setNotesDialog({ open: false, record: null });
-    toast.success("הערה נשמרה");
-  };
 
-  const openCommunityNoteDialog = (record: Record) => {
-    setCommunityNoteDialog({ open: true, record });
-    setCommunityNoteText("");
+    if (newNote) {
+       // Add new note to the dialog state
+      setNotesDialog(prev => ({ ...prev, notes: [...prev.notes, newNote] }));
+      // Update the main records state
+      setRecords(prevRecords => prevRecords.map(r => 
+        r.id === notesDialog.record?.id ? { ...r, td_notes: [...(r.td_notes || []), newNote] } : r
+      ));
+      setNewNoteText("");
+      toast.success("הערה נשמרה");
+    }
   };
 
   const saveCommunityNote = async () => {
@@ -483,11 +521,11 @@ export default function Records() {
                           <Button
                             variant="ghost"
                             size="sm"
-                            className={`h-7 gap-1 ${record.td_notes ? "text-primary" : "text-muted-foreground"}`}
+                            className={`h-7 gap-1 ${record.td_notes && record.td_notes.length > 0 ? "text-primary font-semibold" : "text-muted-foreground"}`}
                             onClick={() => openNotesDialog(record)}
                           >
                             <MessageSquare className="h-3.5 w-3.5" />
-                            {record.td_notes ? "צפה" : "הוסף"}
+                            {record.td_notes && record.td_notes.length > 0 ? `צפה (${record.td_notes.length})` : "הערות"}
                           </Button>
                         </TableCell>
                       )}
@@ -554,32 +592,60 @@ export default function Records() {
         </CardContent>
       </Card>
 
-      {/* Notes Dialog */}
-      <Dialog open={notesDialog.open} onOpenChange={(open) => !open && setNotesDialog({ open: false, record: null })}>
-        <DialogContent className="max-w-md">
+      {/* TD Notes Dialog (Chat View) */}
+      <Dialog open={notesDialog.open} onOpenChange={(open) => !open && setNotesDialog({ open: false, record: null, notes: [] })}>
+        <DialogContent className="max-w-lg">
           <DialogHeader>
             <DialogTitle>
-              הערות תפארת דוד — {notesDialog.record?.first_name} {notesDialog.record?.last_name}
+              הערות ת״ד — {notesDialog.record?.first_name} {notesDialog.record?.last_name}
             </DialogTitle>
           </DialogHeader>
-          <div className="space-y-4">
-            <Textarea
-              value={tdNoteText}
-              onChange={(e) => setTdNoteText(e.target.value)}
-              placeholder="כתוב הערה..."
-              rows={4}
-              maxLength={1000}
-            />
-            <p className="text-xs text-muted-foreground">הערה זו גלויה רק למנהל ראשי ולנציגי תפארת דוד</p>
-            <div className="flex gap-2 justify-end">
-              <Button variant="outline" onClick={() => setNotesDialog({ open: false, record: null })}>
-                ביטול
-              </Button>
-              <Button onClick={saveNotes}>שמור</Button>
+          <div className="flex flex-col h-[60vh]">
+            <ScrollArea className="flex-1 pr-4 -mr-4 mb-4">
+              <div className="space-y-4">
+                {notesDialog.notes.length === 0 ? (
+                  <p className="text-sm text-muted-foreground text-center py-8">אין עדיין הערות</p>
+                ) : (
+                  notesDialog.notes.map(note => (
+                    <div key={note.id} className="flex items-start gap-3">
+                      <Avatar className="h-8 w-8">
+                        <AvatarFallback>{note.profiles?.display_name?.charAt(0) || 'U'}</AvatarFallback>
+                      </Avatar>
+                      <div className="flex-1 bg-muted rounded-lg p-3">
+                        <div className="flex items-center justify-between mb-1">
+                          <p className="text-xs font-semibold">{note.profiles?.display_name || 'משתמש לא ידוע'}</p>
+                          <p className="text-xs text-muted-foreground" title={new Date(note.created_at).toLocaleString('he-IL')}>
+                            {formatDistanceToNow(new Date(note.created_at), { addSuffix: true, locale: he })}
+                          </p>
+                        </div>
+                        <p className="text-sm whitespace-pre-wrap">{note.note}</p>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </ScrollArea>
+            <div className="mt-auto pt-2 border-t">
+              <div className="space-y-2">
+                <Textarea
+                  value={newNoteText}
+                  onChange={(e) => setNewNoteText(e.target.value)}
+                  placeholder="הוסף הערה חדשה..."
+                  rows={3}
+                  maxLength={2000}
+                />
+                <div className="flex justify-end gap-2">
+                   <Button variant="outline" onClick={() => setNotesDialog({ open: false, record: null, notes: [] })}>
+                    סגור
+                  </Button>
+                  <Button onClick={saveNewNote} disabled={!newNoteText.trim()}>שלח הערה</Button>
+                </div>
+              </div>
             </div>
           </div>
         </DialogContent>
       </Dialog>
+
 
       {/* Community Note Dialog */}
       <Dialog open={communityNoteDialog.open} onOpenChange={(open) => !open && setCommunityNoteDialog({ open: false, record: null })}>
