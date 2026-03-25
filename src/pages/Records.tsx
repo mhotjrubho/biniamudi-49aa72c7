@@ -35,6 +35,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { formatDistanceToNow } from 'date-fns';
 import { he } from 'date-fns/locale';
+import { RefreshCw } from 'lucide-react';
 
 interface Note {
   id: string;
@@ -160,10 +161,12 @@ export default function Records() {
   }, [role, user]); // Add user dependency
 
   useEffect(() => {
-    if (user) { // Ensure user is loaded before fetching data
+    // This effect now runs only ONCE when the component mounts,
+    // or if the user's identity fundamentally changes (e.g. new login).
+    if (user) {
       fetchData();
     }
-  }, [user, fetchData]);
+  }, [user?.id]); // Depend only on the stable user ID
 
   const handleAdd = async () => {
     if (!form.national_id || !form.last_name || !form.first_name || !form.community_id) {
@@ -238,31 +241,33 @@ export default function Records() {
   const saveNewNote = async () => {
     if (!notesDialog.record || !newNoteText.trim() || !user) return;
 
-    const { data: newNote, error } = await supabase
+    const { error } = await supabase
       .from("td_notes")
       .insert({
         record_id: notesDialog.record.id,
         user_id: user.id,
         note: newNoteText.trim(),
-      })
-      .select('*, profiles(display_name)')
-      .single();
+      });
 
     if (error) {
-      toast.error("שגיאה בשמירת הערה");
+      console.error("Error saving note:", error);
+      toast.error("שגיאה בשמירת הערה: " + error.message);
       return;
     }
-
-    if (newNote) {
-       // Add new note to the dialog state
-      setNotesDialog(prev => ({ ...prev, notes: [...prev.notes, newNote] }));
-      // Update the main records state
-      setRecords(prevRecords => prevRecords.map(r => 
-        r.id === notesDialog.record?.id ? { ...r, td_notes: [...(r.td_notes || []), newNote] } : r
-      ));
-      setNewNoteText("");
-      toast.success("הערה נשמרה");
-    }
+    
+    toast.success("הערה נשמרה בהצלחה");
+    setNewNoteText("");
+    // Refetch all data to ensure UI is consistent with the database
+    // This is more robust than updating the state locally.
+    fetchData();
+    // Also update the local dialog state to show the new note immediately while fetching
+    const tempNewNote = { 
+      id: new Date().toISOString(), // temporary key
+      created_at: new Date().toISOString(), 
+      note: newNoteText.trim(), 
+      profiles: { display_name: 'אני' } 
+    };
+    setNotesDialog(prev => ({...prev, notes: [...prev.notes, tempNewNote]}));
   };
 
   const saveCommunityNote = async () => {
@@ -322,6 +327,10 @@ export default function Records() {
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 animate-fade-in">
         <h1 className="text-2xl font-bold">רשומות</h1>
         <div className="flex gap-2">
+          <Button variant="outline" size="sm" onClick={() => fetchData()} disabled={loading}>
+            <RefreshCw className={`h-4 w-4 ml-1 ${loading ? 'animate-spin' : ''}`} />
+            רענן
+          </Button>
           <Button variant="outline" size="sm" onClick={handleExport}>
             <Download className="h-4 w-4 ml-1" />
             ייצוא

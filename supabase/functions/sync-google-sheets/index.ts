@@ -60,13 +60,17 @@ Deno.serve(async (req) => {
   let synced = 0;
   let errors = 0;
   let newCommunities = 0;
-  let skipped = 0; // Add a counter for skipped rows
+  let skipped = 0;
   const errorDetails: string[] = [];
 
   for (const row of rows) {
     const nationalId = row.national_id?.toString().trim();
     if (!nationalId) {
-      skipped++; // Increment skipped counter
+      skipped++;
+      await supabaseAdmin.from('unresolved_records').insert({
+        raw_data: row,
+        error_reason: 'Missing or empty national_id'
+      });
       continue;
     }
 
@@ -90,6 +94,10 @@ Deno.serve(async (req) => {
     if (!communityId) {
       errors++;
       errorDetails.push(`national_id ${nationalId}: community "${communityName}" could not be created`);
+      await supabaseAdmin.from('unresolved_records').insert({
+        raw_data: row,
+        error_reason: `Community "${communityName}" does not exist and could not be created.`
+      });
       continue;
     }
 

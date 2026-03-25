@@ -48,13 +48,16 @@ export default function Settings() {
       const res = await fetch(scriptUrl.trim());
       if (res.ok) {
         const data = await res.json();
-        if (data.success) toast.success(`חיבור הצליח! נמצאו ${data.data?.length || 0} רשומות`);
-        else toast.error("הסקריפט החזיר שגיאה");
+        if (data && data.success) {
+          toast.success(`חיבור הצליח! נמצאו ${data.data?.length || 0} רשומות`);
+        } else {
+          toast.error("הסקריפט החזיר שגיאה: " + (data.error || 'תשובה לא תקינה'));
+        }
       } else {
-        toast.error(`שגיאת חיבור: ${res.status}`);
+        toast.error(`שגיאת חיבור: ${res.status} ${res.statusText}`);
       }
     } catch (e: any) {
-      toast.error(`שגיאה: ${e.message}`);
+      toast.error(`שגיאה בביצוע הבקשה: ${e.message}`);
     }
     setTesting(false);
   };

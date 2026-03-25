@@ -15,6 +15,7 @@ import UserManagement from "./pages/UserManagement";
 import Communities from "./pages/Communities";
 import Settings from "./pages/Settings";
 import NotFound from "./pages/NotFound";
+import UnresolvedRecords from "./pages/UnresolvedRecords";
 
 const queryClient = new QueryClient();
 
@@ -43,6 +44,7 @@ const App = () => (
             <Route path="/users" element={<ProtectedRoute allowedRoles={["admin"]}><UserManagement /></ProtectedRoute>} />
             <Route path="/communities" element={<ProtectedRoute allowedRoles={["admin"]}><Communities /></ProtectedRoute>} />
             <Route path="/settings" element={<ProtectedRoute allowedRoles={["admin"]}><Settings /></ProtectedRoute>} />
+            <Route path="/unresolved" element={<ProtectedRoute allowedRoles={["admin"]}><UnresolvedRecords /></ProtectedRoute>} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </AuthProvider>

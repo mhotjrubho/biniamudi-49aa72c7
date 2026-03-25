@@ -11,6 +11,10 @@ import {
   Menu,
   X,
   Shield,
+  Home,
+  AlertCircle,
+  Users2,
+  Anchor,
 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { ThemeToggle } from "@/components/ThemeToggle";
@@ -47,6 +51,16 @@ export function AppLayout({ children }: { children: ReactNode }) {
     community_manager: "מנהל קהילה",
     tiferet_david: "נציג תפארת דוד",
   };
+
+  if (role === "admin") {
+    navItems.push(
+      { to: "/deletions", label: "בקשות מחיקה", icon: <Shield /> },
+      { to: "/unresolved", label: "רשומות לטיפול", icon: <AlertCircle /> },
+      { to: "/communities", label: "קהילות", icon: <Anchor /> },
+      { to: "/users", label: "משתמשים", icon: <Users2 /> },
+      { to: "/settings", label: "הגדרות", icon: <Settings /> }
+    );
+  }
 
   return (
     <div className="flex min-h-screen">
