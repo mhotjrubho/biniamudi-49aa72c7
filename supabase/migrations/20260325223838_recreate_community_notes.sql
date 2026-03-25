@@ -47,7 +47,7 @@ WITH CHECK (
   AND
   (EXISTS ( SELECT 1
    FROM records r
-  WHERE ((r.id = community_notes.record_id) AND (r.community_id = get_my_claim('community_id'::text)::uuid))))
+  WHERE ((r.id = community_notes.record_id) AND (r.community_id = trim(both '"' from (get_my_claim('community_id'::text))::text)::uuid))))
 );
 
 CREATE POLICY "Enable insert for admin"
