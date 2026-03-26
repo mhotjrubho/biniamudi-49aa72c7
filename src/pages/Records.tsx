@@ -65,8 +65,26 @@ interface Community {
   name: string;
 }
 
+const RECORDS_CACHE_TTL = 60_000;
+
+const getRecordsCacheKey = (userId: string, role: string) => `records-cache:${userId}:${role}`;
+
+const readRecordsCache = (userId: string, role: string) => {
+  if (typeof window === "undefined") return null;
+
+  const raw = window.sessionStorage.getItem(getRecordsCacheKey(userId, role));
+  if (!raw) return null;
+
+  try {
+    return JSON.parse(raw) as { timestamp: number; records: Record[]; communities: Community[] };
+  } catch {
+    window.sessionStorage.removeItem(getRecordsCacheKey(userId, role));
+    return null;
+  }
+};
+
 export default function Records() {
-  const { role, user } = useAuth();
+  const { role, user, loading: authLoading } = useAuth();
   const [records, setRecords] = useState<Record[]>([]);
   const [communities, setCommunities] = useState<Community[]>([]);
   const [search, setSearch] = useState("");
@@ -90,83 +108,92 @@ export default function Records() {
     notes: "",
   });
 
-  const fetchData = useCallback(async () => {
-    setLoading(true);
-    
-    // Step 1: Always fetch the main records data.
-    const { data: recordsData, error: recordsError } = await supabase
-      .from("records")
-      .select("*, communities(name)")
-      .eq("is_deleted", false)
-      .order("created_at", { ascending: false });
+  const fetchData = useCallback(async (showLoader = true) => {
+    if (!user || !role) return;
+    if (showLoader) setLoading(true);
 
-    const { data: communitiesData } = await supabase.from("communities").select("*");
-    
-    if (recordsError) {
-      console.error("Error fetching records:", recordsError);
-      toast.error("שגיאה בטעינת הרשומות: " + recordsError.message);
-      setLoading(false);
+    const [recordsRes, communitiesRes, notesRes, communityNotesRes] = await Promise.all([
+      supabase
+        .from("records")
+        .select("*, communities(name)")
+        .eq("is_deleted", false)
+        .order("created_at", { ascending: false }),
+      supabase.from("communities").select("*").order("name"),
+      role === "admin" || role === "tiferet_david"
+        ? supabase.from("td_notes").select("*, profiles(display_name)")
+        : Promise.resolve({ data: null, error: null } as any),
+      role === "admin" || role === "tiferet_david"
+        ? supabase.from("community_notes").select("record_id, id")
+        : Promise.resolve({ data: null, error: null } as any),
+    ]);
+
+    if (recordsRes.error) {
+      console.error("Error fetching records:", recordsRes.error);
+      toast.error("שגיאה בטעינת הרשומות: " + recordsRes.error.message);
+      if (showLoader) setLoading(false);
       return;
     }
-    
-    let finalRecords: Record[] = (recordsData as any[]) || [];
 
-    // Step 2: If the user has permissions, fetch all notes and enrich the records data.
-    if (role === 'admin' || role === 'tiferet_david') {
-      const { data: notesData } = await supabase
-        .from('td_notes')
-        .select('*, profiles(display_name)');
-      
-      if (notesData) {
-        const notesMap = new Map<string, any[]>();
-        notesData.forEach(note => {
-          if (!notesMap.has(note.record_id)) {
-            notesMap.set(note.record_id, []);
-          }
-          notesMap.get(note.record_id)?.push(note);
-        });
+    let finalRecords: Record[] = (recordsRes.data as any[]) || [];
 
-        finalRecords = finalRecords.map(record => ({
-          ...record,
-          td_notes: notesMap.get(record.id) || []
-        }));
-      }
+    if (notesRes.data) {
+      const notesMap = new Map<string, any[]>();
+      notesRes.data.forEach((note: any) => {
+        if (!notesMap.has(note.record_id)) notesMap.set(note.record_id, []);
+        notesMap.get(note.record_id)?.push(note);
+      });
+      finalRecords = finalRecords.map((record) => ({ ...record, td_notes: notesMap.get(record.id) || [] }));
     }
 
-    // Also fetch community_notes count for the indicator icon, but only for roles that can see them.
-    if (role === 'admin' || role === 'tiferet_david') {
-     const { data: communityNotesData } = await supabase
-        .from('community_notes')
-        .select('record_id, id');
-      
-      if (communityNotesData) {
-        const notesMap = new Map<string, any[]>();
-        communityNotesData.forEach(note => {
-          if (!notesMap.has(note.record_id)) {
-            notesMap.set(note.record_id, []);
-          }
-          notesMap.get(note.record_id)?.push({ id: note.id });
-        });
-
-        finalRecords = finalRecords.map(record => ({
-          ...record,
-          community_notes: notesMap.get(record.id) || []
-        }));
-      }
+    if (communityNotesRes.data) {
+      const communityNotesMap = new Map<string, any[]>();
+      communityNotesRes.data.forEach((note: any) => {
+        if (!communityNotesMap.has(note.record_id)) communityNotesMap.set(note.record_id, []);
+        communityNotesMap.get(note.record_id)?.push({ id: note.id });
+      });
+      finalRecords = finalRecords.map((record) => ({ ...record, community_notes: communityNotesMap.get(record.id) || [] }));
     }
 
     setRecords(finalRecords);
-    setCommunities(communitiesData || []);
-    setLoading(false);
-  }, [role, user]); // Add user dependency
+    setCommunities((communitiesRes.data as Community[]) || []);
+    if (showLoader) setLoading(false);
+  }, [role, user]);
 
   useEffect(() => {
-    // This effect now runs only ONCE when the component mounts,
-    // or if the user's identity fundamentally changes (e.g. new login).
-    if (user) {
-      fetchData();
+    if (!user || !role || typeof window === "undefined") return;
+
+    window.sessionStorage.setItem(
+      getRecordsCacheKey(user.id, role),
+      JSON.stringify({ timestamp: Date.now(), records, communities })
+    );
+  }, [records, communities, user?.id, role]);
+
+  useEffect(() => {
+    if (authLoading) return;
+    if (!user || !role) {
+      setRecords([]);
+      setCommunities([]);
+      setLoading(false);
+      return;
     }
-  }, [user?.id]); // Depend only on the stable user ID
+
+    const cached = readRecordsCache(user.id, role);
+
+    if (cached) {
+      setRecords(cached.records);
+      setCommunities(cached.communities);
+      setLoading(false);
+
+      if (Date.now() - cached.timestamp < RECORDS_CACHE_TTL) {
+        return;
+      }
+
+      void fetchData(false);
+      return;
+    }
+
+    void fetchData();
+  }, [authLoading, user?.id, role, fetchData]);
 
   const handleAdd = async () => {
     if (!form.national_id || !form.last_name || !form.first_name || !form.community_id) {
@@ -191,7 +218,7 @@ export default function Records() {
     toast.success("רשומה נוספה בהצלחה");
     setDialogOpen(false);
     setForm({ national_id: "", last_name: "", first_name: "", community_id: "", school: "", grade_class: "", risk_level: "classic", notes: "" });
-    fetchData();
+    void fetchData(false);
   };
 
   const handleSoftDelete = async (recordId: string) => {
@@ -203,7 +230,7 @@ export default function Records() {
       await supabase.from("deletion_queue").insert({ record_id: recordId, requested_by: user.id });
       toast.success("בקשת מחיקה נשלחה לאישור מנהל");
     }
-    fetchData();
+    void fetchData(false);
   };
 
   const handleRiskChange = async (record: Record, newLevel: string, action: string = "risk_level_changed") => {
@@ -262,17 +289,14 @@ export default function Records() {
     
     toast.success("הערה נשמרה בהצלחה");
     setNewNoteText("");
-    // Refetch all data to ensure UI is consistent with the database
-    // This is more robust than updating the state locally.
-    fetchData();
-    // Also update the local dialog state to show the new note immediately while fetching
-    const tempNewNote = { 
-      id: new Date().toISOString(), // temporary key
-      created_at: new Date().toISOString(), 
-      note: newNoteText.trim(), 
-      profiles: { display_name: 'אני' } 
+    const tempNewNote = {
+      id: new Date().toISOString(),
+      created_at: new Date().toISOString(),
+      note: newNoteText.trim(),
+      profiles: { display_name: 'אני' }
     };
     setNotesDialog(prev => ({...prev, notes: [...prev.notes, tempNewNote]}));
+    void fetchData(false);
   };
 
   const saveCommunityNote = async () => {
@@ -293,7 +317,7 @@ export default function Records() {
     }
     toast.success("הערה נוספה בהצלחה");
     setCommunityNoteDialog({ open: false, record: null });
-    fetchData(); // Refetch to update note indicator
+    void fetchData(false); // Refetch to update note indicator
   };
 
   const handleExport = () => {
