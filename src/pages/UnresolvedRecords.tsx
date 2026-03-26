@@ -8,7 +8,7 @@ import { toast } from "sonner";
 import { Check, AlertCircle } from "lucide-react";
 
 interface UnresolvedRecord {
-  id: string;
+  id: number;
   created_at: string;
   raw_data: any;
   error_reason: string;
@@ -33,7 +33,7 @@ export default function UnresolvedRecords() {
     fetchUnresolved();
   }, []);
   
-  const markAsResolved = async (id: string) => {
+  const markAsResolved = async (id: number) => {
     const { error } = await supabase
       .from('unresolved_records')
       .update({ is_resolved: true })

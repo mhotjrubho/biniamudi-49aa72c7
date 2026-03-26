@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { NavLink } from "@/components/NavLink";
 import { cn } from "@/lib/utils";
 
 interface NavItem {
