@@ -65,6 +65,24 @@ interface Community {
   name: string;
 }
 
+const RECORDS_CACHE_TTL = 60_000;
+
+const getRecordsCacheKey = (userId: string, role: string) => `records-cache:${userId}:${role}`;
+
+const readRecordsCache = (userId: string, role: string) => {
+  if (typeof window === "undefined") return null;
+
+  const raw = window.sessionStorage.getItem(getRecordsCacheKey(userId, role));
+  if (!raw) return null;
+
+  try {
+    return JSON.parse(raw) as { timestamp: number; records: Record[]; communities: Community[] };
+  } catch {
+    window.sessionStorage.removeItem(getRecordsCacheKey(userId, role));
+    return null;
+  }
+};
+
 export default function Records() {
   const { role, user, loading: authLoading } = useAuth();
   const [records, setRecords] = useState<Record[]>([]);
@@ -142,11 +160,35 @@ export default function Records() {
   }, [role, user]);
 
   useEffect(() => {
+    if (!user || !role || typeof window === "undefined") return;
+
+    window.sessionStorage.setItem(
+      getRecordsCacheKey(user.id, role),
+      JSON.stringify({ timestamp: Date.now(), records, communities })
+    );
+  }, [records, communities, user?.id, role]);
+
+  useEffect(() => {
     if (authLoading) return;
     if (!user || !role) {
       setRecords([]);
       setCommunities([]);
       setLoading(false);
+      return;
+    }
+
+    const cached = readRecordsCache(user.id, role);
+
+    if (cached) {
+      setRecords(cached.records);
+      setCommunities(cached.communities);
+      setLoading(false);
+
+      if (Date.now() - cached.timestamp < RECORDS_CACHE_TTL) {
+        return;
+      }
+
+      void fetchData(false);
       return;
     }
 
@@ -176,7 +218,7 @@ export default function Records() {
     toast.success("רשומה נוספה בהצלחה");
     setDialogOpen(false);
     setForm({ national_id: "", last_name: "", first_name: "", community_id: "", school: "", grade_class: "", risk_level: "classic", notes: "" });
-    fetchData();
+    void fetchData(false);
   };
 
   const handleSoftDelete = async (recordId: string) => {
@@ -188,7 +230,7 @@ export default function Records() {
       await supabase.from("deletion_queue").insert({ record_id: recordId, requested_by: user.id });
       toast.success("בקשת מחיקה נשלחה לאישור מנהל");
     }
-    fetchData();
+    void fetchData(false);
   };
 
   const handleRiskChange = async (record: Record, newLevel: string, action: string = "risk_level_changed") => {
@@ -247,17 +289,14 @@ export default function Records() {
     
     toast.success("הערה נשמרה בהצלחה");
     setNewNoteText("");
-    // Refetch all data to ensure UI is consistent with the database
-    // This is more robust than updating the state locally.
-    fetchData();
-    // Also update the local dialog state to show the new note immediately while fetching
-    const tempNewNote = { 
-      id: new Date().toISOString(), // temporary key
-      created_at: new Date().toISOString(), 
-      note: newNoteText.trim(), 
-      profiles: { display_name: 'אני' } 
+    const tempNewNote = {
+      id: new Date().toISOString(),
+      created_at: new Date().toISOString(),
+      note: newNoteText.trim(),
+      profiles: { display_name: 'אני' }
     };
     setNotesDialog(prev => ({...prev, notes: [...prev.notes, tempNewNote]}));
+    void fetchData(false);
   };
 
   const saveCommunityNote = async () => {
@@ -278,7 +317,7 @@ export default function Records() {
     }
     toast.success("הערה נוספה בהצלחה");
     setCommunityNoteDialog({ open: false, record: null });
-    fetchData(); // Refetch to update note indicator
+    void fetchData(false); // Refetch to update note indicator
   };
 
   const handleExport = () => {

@@ -24,8 +24,14 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 const getAuthStorageKeys = () => {
+  if (typeof window === "undefined") return [] as string[];
+
   const projectId = import.meta.env.VITE_SUPABASE_PROJECT_ID;
-  return [`sb-${projectId}-auth-token`, "supabase.auth.token"];
+  const discoveredKeys = Object.keys(window.localStorage).filter(
+    (key) => key === "supabase.auth.token" || key.endsWith("-auth-token") || key.includes(projectId)
+  );
+
+  return Array.from(new Set([`sb-${projectId}-auth-token`, "supabase.auth.token", ...discoveredKeys]));
 };
 
 const clearPersistedSession = () => {
