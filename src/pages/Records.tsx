@@ -238,6 +238,11 @@ export default function Records() {
     setNewNoteText("");
   };
 
+  const openCommunityNoteDialog = (record: Record) => {
+    setCommunityNoteDialog({ open: true, record });
+    setCommunityNoteText("");
+  };
+
   const saveNewNote = async () => {
     if (!notesDialog.record || !newNoteText.trim() || !user) return;
 
