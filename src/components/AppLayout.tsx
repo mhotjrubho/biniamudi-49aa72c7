@@ -106,15 +106,12 @@ export function AppLayout({ children }: { children: ReactNode }) {
               key={link.to}
               to={link.to}
               onClick={() => setSidebarOpen(false)}
-              className={({ isActive }) =>
-                cn(
-                  "group flex items-center rounded-xl px-3 py-3 text-sm font-medium transition-all duration-200",
-                  sidebarCollapsed ? "justify-center" : "gap-3",
-                  isActive
-                    ? "bg-sidebar-primary text-sidebar-primary-foreground shadow-md"
-                    : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-                )
-              }
+              className={cn(
+                "group flex items-center rounded-xl px-3 py-3 text-sm font-medium transition-all duration-200",
+                sidebarCollapsed ? "justify-center" : "gap-3",
+                "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+              )}
+              activeClassName="bg-sidebar-primary text-sidebar-primary-foreground shadow-md"
               title={sidebarCollapsed ? link.label : undefined}
             >
               <span className="shrink-0">{link.icon}</span>
