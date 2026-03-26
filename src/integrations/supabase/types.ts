@@ -132,6 +132,7 @@ export type Database = {
       }
       history_logs: {
         Row: {
+          action_type: string | null
           changed_by: string
           created_at: string
           id: string
@@ -141,6 +142,7 @@ export type Database = {
           record_id: string
         }
         Insert: {
+          action_type?: string | null
           changed_by: string
           created_at?: string
           id?: string
@@ -150,6 +152,7 @@ export type Database = {
           record_id: string
         }
         Update: {
+          action_type?: string | null
           changed_by?: string
           created_at?: string
           id?: string
@@ -159,6 +162,13 @@ export type Database = {
           record_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "history_logs_changed_by_fkey"
+            columns: ["changed_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["user_id"]
+          },
           {
             foreignKeyName: "history_logs_record_id_fkey"
             columns: ["record_id"]
