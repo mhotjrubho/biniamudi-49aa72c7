@@ -53,6 +53,45 @@ export type Database = {
         }
         Relationships: []
       }
+      community_notes: {
+        Row: {
+          created_at: string
+          id: number
+          note: string
+          record_id: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: number
+          note: string
+          record_id: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: number
+          note?: string
+          record_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "community_notes_record_id_fkey"
+            columns: ["record_id"]
+            isOneToOne: false
+            referencedRelation: "records"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "community_notes_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["user_id"]
+          },
+        ]
+      }
       deletion_queue: {
         Row: {
           deleted_from_excel: boolean
@@ -241,6 +280,69 @@ export type Database = {
           },
         ]
       }
+      td_notes: {
+        Row: {
+          created_at: string
+          id: number
+          note: string
+          record_id: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: number
+          note: string
+          record_id: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: number
+          note?: string
+          record_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "td_notes_record_id_fkey"
+            columns: ["record_id"]
+            isOneToOne: false
+            referencedRelation: "records"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "td_notes_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["user_id"]
+          },
+        ]
+      }
+      unresolved_records: {
+        Row: {
+          created_at: string
+          error_reason: string | null
+          id: number
+          is_resolved: boolean
+          raw_data: Json | null
+        }
+        Insert: {
+          created_at?: string
+          error_reason?: string | null
+          id?: number
+          is_resolved?: boolean
+          raw_data?: Json | null
+        }
+        Update: {
+          created_at?: string
+          error_reason?: string | null
+          id?: number
+          is_resolved?: boolean
+          raw_data?: Json | null
+        }
+        Relationships: []
+      }
       user_roles: {
         Row: {
           id: string
@@ -264,6 +366,7 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      get_my_claim: { Args: { claim: string }; Returns: Json }
       get_user_role: {
         Args: { _user_id: string }
         Returns: Database["public"]["Enums"]["app_role"]
