@@ -23,6 +23,20 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+const getAuthStorageKeys = () => {
+  const projectId = import.meta.env.VITE_SUPABASE_PROJECT_ID;
+  return [`sb-${projectId}-auth-token`, "supabase.auth.token"];
+};
+
+const clearPersistedSession = () => {
+  if (typeof window === "undefined") return;
+
+  for (const key of getAuthStorageKeys()) {
+    window.localStorage.removeItem(key);
+    window.sessionStorage.removeItem(key);
+  }
+};
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [user, setUser] = useState<User | null>(null);
@@ -36,61 +50,82 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         supabase.rpc("get_user_role", { _user_id: userId }),
         supabase.from("profiles").select("*").eq("user_id", userId).single(),
       ]);
-      setRole((roleRes.data as AppRole) || null);
-      setProfile((profileRes.data as Profile) || null);
+
+      return {
+        role: (roleRes.data as AppRole) || null,
+        profile: (profileRes.data as Profile) || null,
+      };
     } catch (error) {
       console.error("Error fetching user data:", error);
-      // Clear data on error to prevent inconsistent state
-      setRole(null);
-      setProfile(null);
+      return { role: null as AppRole, profile: null as Profile | null };
     }
   }, []);
 
   useEffect(() => {
-    const initializeSession = async () => {
-      try {
-        const { data: { session: initialSession } } = await supabase.auth.getSession();
-        if (initialSession) {
-          setSession(initialSession);
-          setUser(initialSession.user);
-          await fetchUserData(initialSession.user.id);
-        }
-      } catch (error) {
-        console.error("Error initializing session:", error);
-      } finally {
-        setLoading(false);
-      }
-    };
-    
-    initializeSession();
+    let isMounted = true;
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (event, newSession) => {
-        setLoading(true);
-        setSession(newSession);
-        const newUser = newSession?.user ?? null;
-        setUser(newUser);
-        if (newUser) {
-          await fetchUserData(newUser.id);
-        } else {
-          setRole(null);
-          setProfile(null);
-        }
+    const applySession = async (nextSession: Session | null) => {
+      if (!isMounted) return;
+
+      setSession(nextSession);
+      const nextUser = nextSession?.user ?? null;
+      setUser(nextUser);
+
+      if (!nextUser) {
+        setRole(null);
+        setProfile(null);
         setLoading(false);
+        return;
       }
-    );
+
+      const userData = await fetchUserData(nextUser.id);
+      if (!isMounted) return;
+
+      setRole(userData.role);
+      setProfile(userData.profile);
+      setLoading(false);
+    };
+
+    setLoading(true);
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+      void applySession(nextSession);
+    });
+
+    void supabase.auth.getSession().then(({ data, error }) => {
+      if (error) {
+        console.error("Error restoring session:", error);
+        clearPersistedSession();
+        if (!isMounted) return;
+        setSession(null);
+        setUser(null);
+        setRole(null);
+        setProfile(null);
+        setLoading(false);
+        return;
+      }
+
+      if (!data.session) {
+        clearPersistedSession();
+      }
+
+      void applySession(data.session ?? null);
+    });
 
     return () => {
+      isMounted = false;
       subscription?.unsubscribe();
     };
   }, [fetchUserData]);
-  
+
   const signIn = async (email: string, password: string) => {
+    clearPersistedSession();
     const { error } = await supabase.auth.signInWithPassword({ email, password });
     return { error: error as Error | null };
   };
 
   const signOut = async () => {
+    clearPersistedSession();
     await supabase.auth.signOut();
   };
 
