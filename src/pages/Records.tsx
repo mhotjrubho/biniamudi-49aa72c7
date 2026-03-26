@@ -66,7 +66,7 @@ interface Community {
 }
 
 export default function Records() {
-  const { role, user } = useAuth();
+  const { role, user, loading: authLoading } = useAuth();
   const [records, setRecords] = useState<Record[]>([]);
   const [communities, setCommunities] = useState<Community[]>([]);
   const [search, setSearch] = useState("");
@@ -90,83 +90,68 @@ export default function Records() {
     notes: "",
   });
 
-  const fetchData = useCallback(async () => {
-    setLoading(true);
-    
-    // Step 1: Always fetch the main records data.
-    const { data: recordsData, error: recordsError } = await supabase
-      .from("records")
-      .select("*, communities(name)")
-      .eq("is_deleted", false)
-      .order("created_at", { ascending: false });
+  const fetchData = useCallback(async (showLoader = true) => {
+    if (!user || !role) return;
+    if (showLoader) setLoading(true);
 
-    const { data: communitiesData } = await supabase.from("communities").select("*");
-    
-    if (recordsError) {
-      console.error("Error fetching records:", recordsError);
-      toast.error("שגיאה בטעינת הרשומות: " + recordsError.message);
-      setLoading(false);
+    const [recordsRes, communitiesRes, notesRes, communityNotesRes] = await Promise.all([
+      supabase
+        .from("records")
+        .select("*, communities(name)")
+        .eq("is_deleted", false)
+        .order("created_at", { ascending: false }),
+      supabase.from("communities").select("*").order("name"),
+      role === "admin" || role === "tiferet_david"
+        ? supabase.from("td_notes").select("*, profiles(display_name)")
+        : Promise.resolve({ data: null, error: null } as any),
+      role === "admin" || role === "tiferet_david"
+        ? supabase.from("community_notes").select("record_id, id")
+        : Promise.resolve({ data: null, error: null } as any),
+    ]);
+
+    if (recordsRes.error) {
+      console.error("Error fetching records:", recordsRes.error);
+      toast.error("שגיאה בטעינת הרשומות: " + recordsRes.error.message);
+      if (showLoader) setLoading(false);
       return;
     }
-    
-    let finalRecords: Record[] = (recordsData as any[]) || [];
 
-    // Step 2: If the user has permissions, fetch all notes and enrich the records data.
-    if (role === 'admin' || role === 'tiferet_david') {
-      const { data: notesData } = await supabase
-        .from('td_notes')
-        .select('*, profiles(display_name)');
-      
-      if (notesData) {
-        const notesMap = new Map<string, any[]>();
-        notesData.forEach(note => {
-          if (!notesMap.has(note.record_id)) {
-            notesMap.set(note.record_id, []);
-          }
-          notesMap.get(note.record_id)?.push(note);
-        });
+    let finalRecords: Record[] = (recordsRes.data as any[]) || [];
 
-        finalRecords = finalRecords.map(record => ({
-          ...record,
-          td_notes: notesMap.get(record.id) || []
-        }));
-      }
+    if (notesRes.data) {
+      const notesMap = new Map<string, any[]>();
+      notesRes.data.forEach((note: any) => {
+        if (!notesMap.has(note.record_id)) notesMap.set(note.record_id, []);
+        notesMap.get(note.record_id)?.push(note);
+      });
+      finalRecords = finalRecords.map((record) => ({ ...record, td_notes: notesMap.get(record.id) || [] }));
     }
 
-    // Also fetch community_notes count for the indicator icon, but only for roles that can see them.
-    if (role === 'admin' || role === 'tiferet_david') {
-     const { data: communityNotesData } = await supabase
-        .from('community_notes')
-        .select('record_id, id');
-      
-      if (communityNotesData) {
-        const notesMap = new Map<string, any[]>();
-        communityNotesData.forEach(note => {
-          if (!notesMap.has(note.record_id)) {
-            notesMap.set(note.record_id, []);
-          }
-          notesMap.get(note.record_id)?.push({ id: note.id });
-        });
-
-        finalRecords = finalRecords.map(record => ({
-          ...record,
-          community_notes: notesMap.get(record.id) || []
-        }));
-      }
+    if (communityNotesRes.data) {
+      const communityNotesMap = new Map<string, any[]>();
+      communityNotesRes.data.forEach((note: any) => {
+        if (!communityNotesMap.has(note.record_id)) communityNotesMap.set(note.record_id, []);
+        communityNotesMap.get(note.record_id)?.push({ id: note.id });
+      });
+      finalRecords = finalRecords.map((record) => ({ ...record, community_notes: communityNotesMap.get(record.id) || [] }));
     }
 
     setRecords(finalRecords);
-    setCommunities(communitiesData || []);
-    setLoading(false);
-  }, [role, user]); // Add user dependency
+    setCommunities((communitiesRes.data as Community[]) || []);
+    if (showLoader) setLoading(false);
+  }, [role, user]);
 
   useEffect(() => {
-    // This effect now runs only ONCE when the component mounts,
-    // or if the user's identity fundamentally changes (e.g. new login).
-    if (user) {
-      fetchData();
+    if (authLoading) return;
+    if (!user || !role) {
+      setRecords([]);
+      setCommunities([]);
+      setLoading(false);
+      return;
     }
-  }, [user?.id]); // Depend only on the stable user ID
+
+    void fetchData();
+  }, [authLoading, user?.id, role, fetchData]);
 
   const handleAdd = async () => {
     if (!form.national_id || !form.last_name || !form.first_name || !form.community_id) {
