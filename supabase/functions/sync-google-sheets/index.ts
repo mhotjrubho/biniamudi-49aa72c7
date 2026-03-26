@@ -50,7 +50,16 @@ Deno.serve(async (req) => {
     });
   }
 
-  const rows = sheetData.data;
+  const rows = Array.isArray(sheetData.data) ? sheetData.data : [];
+  const latestRowsByNationalId = new Map<string, any>();
+
+  for (const row of rows) {
+    const nationalId = row.national_id?.toString().trim();
+    if (!nationalId) continue;
+    latestRowsByNationalId.set(nationalId, row);
+  }
+
+  const uniqueRows = Array.from(latestRowsByNationalId.values());
 
   // Get communities for name → id mapping
   const { data: communities } = await supabaseAdmin.from('communities').select('id, name');
@@ -61,9 +70,10 @@ Deno.serve(async (req) => {
   let errors = 0;
   let newCommunities = 0;
   let skipped = 0;
+  const duplicate_rows = rows.length - uniqueRows.length;
   const errorDetails: string[] = [];
 
-  for (const row of rows) {
+  for (const row of uniqueRows) {
     const nationalId = row.national_id?.toString().trim();
     if (!nationalId) {
       skipped++;
@@ -146,11 +156,31 @@ Deno.serve(async (req) => {
   // Update last sync timestamp
   await supabaseAdmin.from('app_settings').upsert({
     key: 'last_sync',
-    value: { timestamp: new Date().toISOString(), total_rows: rows.length, synced, errors, skipped, deleted, newCommunities },
+    value: {
+      timestamp: new Date().toISOString(),
+      source_rows: rows.length,
+      unique_rows: uniqueRows.length,
+      duplicate_rows,
+      synced,
+      errors,
+      skipped,
+      deleted,
+      newCommunities,
+    },
     updated_at: new Date().toISOString(),
   }, { onConflict: 'key' });
 
-  return new Response(JSON.stringify({ total_rows: rows.length, synced, skipped, errors, deleted, newCommunities, errorDetails }), {
+  return new Response(JSON.stringify({
+    source_rows: rows.length,
+    unique_rows: uniqueRows.length,
+    duplicate_rows,
+    synced,
+    skipped,
+    errors,
+    deleted,
+    newCommunities,
+    errorDetails,
+  }), {
     headers: { ...corsHeaders, 'Content-Type': 'application/json' }
   });
 });

@@ -79,13 +79,15 @@ export default function Settings() {
       const data = await res.json();
       if (res.ok) {
         const skipped = data.skipped || 0;
-        const total = data.total_rows || (data.synced + skipped);
-        const details = `סה״כ שורות: ${total} | סונכרנו: ${data.synced} | דולגו: ${skipped}`;
-        const summary = `סנכרון הושלם: ${data.synced} עודכנו`;
+        const sourceRows = data.source_rows || data.total_rows || 0;
+        const uniqueRows = data.unique_rows || data.synced || 0;
+        const duplicateRows = data.duplicate_rows || 0;
+        const details = `שורות מקור: ${sourceRows} | תלמידים ייחודיים: ${uniqueRows} | סונכרנו: ${data.synced} | כפילויות במקור: ${duplicateRows} | דולגו: ${skipped}`;
+        const summary = `הסנכרון הושלם: ${data.synced} תלמידים עודכנו`;
 
-        if (skipped > 0) {
-          toast.warning("סנכרון הושלם עם שורות שדולגו", {
-            description: "חלק מהשורות דולגו עקב חוסר במספר ת.ז.",
+        if (skipped > 0 || duplicateRows > 0) {
+          toast.warning("הסנכרון הושלם עם הבדלי נתונים", {
+            description: duplicateRows > 0 ? "זוהו כפילויות ת.ז. בקובץ המקור" : "חלק מהשורות דולגו עקב חוסר במספר ת.ז.",
             action: {
               label: "הצג פרטים",
               onClick: () => toast.info(details),
@@ -200,7 +202,9 @@ export default function Settings() {
                 <span className="font-medium">סנכרון אחרון: {new Date(lastSync.timestamp).toLocaleString("he-IL")}</span>
               </div>
               <div className="flex gap-4 text-muted-foreground">
-                <span>סה״כ: {lastSync.total_rows || lastSync.synced + (lastSync.skipped || 0)}</span>
+                <span>שורות מקור: {lastSync.source_rows || lastSync.total_rows || 0}</span>
+                <span>תלמידים ייחודיים: {lastSync.unique_rows || lastSync.synced}</span>
+                {lastSync.duplicate_rows > 0 && <span className="text-warning">כפילויות: {lastSync.duplicate_rows}</span>}
                 <span>עודכנו: {lastSync.synced}</span>
                 {lastSync.skipped > 0 && <span className="text-warning">דולגו: {lastSync.skipped}</span>}
                 <span>שגיאות: {lastSync.errors}</span>
