@@ -52,10 +52,21 @@ Deno.serve(async (req) => {
 
   const rows = Array.isArray(sheetData.data) ? sheetData.data : [];
   const latestRowsByNationalId = new Map<string, any>();
+  const duplicateRows: any[] = [];
+  const missingNationalIdRows: any[] = [];
 
   for (const row of rows) {
     const nationalId = row.national_id?.toString().trim();
-    if (!nationalId) continue;
+
+    if (!nationalId) {
+      missingNationalIdRows.push(row);
+      continue;
+    }
+
+    if (latestRowsByNationalId.has(nationalId)) {
+      duplicateRows.push(row);
+    }
+
     latestRowsByNationalId.set(nationalId, row);
   }
 
@@ -69,18 +80,30 @@ Deno.serve(async (req) => {
   let synced = 0;
   let errors = 0;
   let newCommunities = 0;
-  let skipped = 0;
-  const duplicate_rows = rows.length - uniqueRows.length;
+  let skipped = missingNationalIdRows.length;
+  const duplicate_rows = duplicateRows.length;
   const errorDetails: string[] = [];
+
+  for (const row of missingNationalIdRows) {
+    await supabaseAdmin.from('unresolved_records').insert({
+      raw_data: row,
+      error_reason: 'Missing or empty national_id'
+    });
+  }
+
+  for (const row of duplicateRows) {
+    const nationalId = row.national_id?.toString().trim();
+    errors++;
+    errorDetails.push(`national_id ${nationalId}: duplicate row in source`);
+    await supabaseAdmin.from('unresolved_records').insert({
+      raw_data: row,
+      error_reason: `Duplicate national_id in source: ${nationalId}`
+    });
+  }
 
   for (const row of uniqueRows) {
     const nationalId = row.national_id?.toString().trim();
     if (!nationalId) {
-      skipped++;
-      await supabaseAdmin.from('unresolved_records').insert({
-        raw_data: row,
-        error_reason: 'Missing or empty national_id'
-      });
       continue;
     }
 
@@ -125,13 +148,12 @@ Deno.serve(async (req) => {
     // Upsert by national_id
     const { data: existing } = await supabaseAdmin
       .from('records')
-      .select('id')
+      .select('id, is_deleted')
       .eq('national_id', nationalId)
-      .eq('is_deleted', false)
       .maybeSingle();
 
     if (existing) {
-      await supabaseAdmin.from('records').update(record).eq('id', existing.id);
+      await supabaseAdmin.from('records').update({ ...record, is_deleted: false }).eq('id', existing.id);
     } else {
       record.is_deleted = false; // Explicitly set new records as not deleted
       await supabaseAdmin.from('records').insert(record);

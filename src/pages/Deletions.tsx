@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Checkbox } from "@/components/ui/checkbox";
+import { RecordLink } from "@/components/RecordLink";
 import { toast } from "sonner";
 import { Check, X, FileSpreadsheet } from "lucide-react";
 
@@ -96,7 +97,13 @@ export default function Deletions() {
                     pending.map((req) => (
                       <TableRow key={req.id}>
                         <TableCell dir="ltr" className="font-mono text-sm">{req.records?.national_id}</TableCell>
-                        <TableCell>{req.records?.first_name} {req.records?.last_name}</TableCell>
+                        <TableCell>
+                          {req.records ? (
+                            <RecordLink recordId={req.record_id} nationalId={req.records.national_id}>
+                              {req.records.first_name} {req.records.last_name}
+                            </RecordLink>
+                          ) : "-"}
+                        </TableCell>
                         <TableCell>{new Date(req.requested_at).toLocaleDateString("he-IL")}</TableCell>
                         <TableCell>{req.reason || "-"}</TableCell>
                         <TableCell>
@@ -148,7 +155,13 @@ export default function Deletions() {
                     approved.map((req) => (
                       <TableRow key={req.id}>
                         <TableCell dir="ltr" className="font-mono text-sm">{req.records?.national_id}</TableCell>
-                        <TableCell>{req.records?.first_name} {req.records?.last_name}</TableCell>
+                        <TableCell>
+                          {req.records ? (
+                            <RecordLink recordId={req.record_id} nationalId={req.records.national_id}>
+                              {req.records.first_name} {req.records.last_name}
+                            </RecordLink>
+                          ) : "-"}
+                        </TableCell>
                         <TableCell>{new Date(req.requested_at).toLocaleDateString("he-IL")}</TableCell>
                         <TableCell>{req.reason || "-"}</TableCell>
                         <TableCell>
