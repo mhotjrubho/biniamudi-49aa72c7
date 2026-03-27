@@ -113,7 +113,14 @@
   }
 
   body {
-    @apply bg-background text-foreground font-heebo antialiased;
+    @apply bg-background text-foreground font-heebo antialiased text-right;
+  }
+
+  [role="dialog"],
+  [data-radix-popper-content-wrapper],
+  .sonner-toast {
+    direction: rtl;
+    text-align: right;
   }
 }
 

@@ -4,6 +4,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { RecordLink } from "@/components/RecordLink";
 import { toast } from "sonner";
 import { Check, AlertCircle } from "lucide-react";
 
@@ -85,7 +86,13 @@ export default function UnresolvedRecords() {
               ) : (
                 records.map((r) => (
                   <TableRow key={r.id} className={r.is_resolved ? "bg-muted/40" : ""}>
-                    <TableCell>{getFieldValue(r.raw_data?.first_name)}</TableCell>
+                     <TableCell>
+                       {r.raw_data?.national_id ? (
+                         <RecordLink nationalId={r.raw_data.national_id?.toString()}>
+                           {getFieldValue(r.raw_data?.first_name)}
+                         </RecordLink>
+                       ) : getFieldValue(r.raw_data?.first_name)}
+                     </TableCell>
                     <TableCell>{getFieldValue(r.raw_data?.last_name)}</TableCell>
                     <TableCell>{getFieldValue(r.raw_data?.community)}</TableCell>
                     <TableCell>

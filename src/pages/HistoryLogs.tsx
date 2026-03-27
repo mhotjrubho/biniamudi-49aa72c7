@@ -3,10 +3,12 @@ import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { RiskBadge } from "@/components/RiskBadge";
+import { RecordLink } from "@/components/RecordLink";
 import { ArrowLeftRight, ShieldAlert, User } from "lucide-react";
 
 interface Log {
   id: string;
+  record_id: string;
   created_at: string;
   action_type: string | null;
   old_risk_level: string | null;
@@ -63,7 +65,7 @@ export default function HistoryLogs() {
                 <TableHead>פעולה</TableHead>
                 <TableHead>פירוט השינוי</TableHead>
                 <TableHead>בוצע ע״י</TableHead>
-                <TableHead className="text-left">תאריך</TableHead>
+                <TableHead>תאריך</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -83,7 +85,11 @@ export default function HistoryLogs() {
                 logs.map((log) => (
                   <TableRow key={log.id} className="hover:bg-muted/5">
                     <TableCell className="font-medium">
-                      {log.records ? `${log.records.first_name} ${log.records.last_name}`: <span className="text-muted-foreground italic">רשומה נמחקה</span>}
+                      {log.records ? (
+                        <RecordLink recordId={log.record_id}>
+                          {log.records.first_name} {log.records.last_name}
+                        </RecordLink>
+                      ) : <span className="text-muted-foreground italic">רשומה נמחקה</span>}
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-2">
@@ -100,7 +106,7 @@ export default function HistoryLogs() {
                         <span>{log.profiles?.display_name || <span className="italic">לא ידוע</span>}</span>
                       </div>
                     </TableCell>
-                    <TableCell className="text-left text-muted-foreground text-xs">
+                    <TableCell className="text-muted-foreground text-xs">
                       {new Date(log.created_at).toLocaleString("he-IL", { dateStyle: 'short', timeStyle: 'short' })}
                     </TableCell>
                   </TableRow>

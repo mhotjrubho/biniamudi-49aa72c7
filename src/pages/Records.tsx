@@ -1,4 +1,5 @@
-import { useEffect, useState, useCallback } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
@@ -11,40 +12,34 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { formatDistanceToNow } from "date-fns";
+import { he } from "date-fns/locale";
 import {
-  Plus,
-  Search,
   Download,
-  Trash2,
   MessageSquare,
   NotebookPen,
+  Pencil,
+  Plus,
+  RefreshCw,
+  Save,
+  Search,
   ShieldAlert,
+  Trash2,
+  X,
 } from "lucide-react";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "@/components/ui/alert-dialog";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { formatDistanceToNow } from 'date-fns';
-import { he } from 'date-fns/locale';
-import { RefreshCw } from 'lucide-react';
 
 interface Note {
-  id: string;
+  id: string | number;
   created_at: string;
   note: string;
+  record_id: string;
+  user_id: string;
   profiles?: { display_name: string } | null;
 }
 
-interface Record {
+interface RecordItem {
   id: string;
   national_id: string;
   last_name: string;
@@ -55,8 +50,8 @@ interface Record {
   risk_level: string;
   treatment_status: string | null;
   phone: string | null;
-  communities?: { name: string };
-  community_notes?: { id: string }[];
+  communities?: { name: string } | null;
+  community_notes?: Note[];
   td_notes?: Note[];
 }
 
@@ -65,38 +60,32 @@ interface Community {
   name: string;
 }
 
-const RECORDS_CACHE_TTL = 60_000;
-
-const getRecordsCacheKey = (userId: string, role: string) => `records-cache:${userId}:${role}`;
-
-const readRecordsCache = (userId: string, role: string) => {
-  if (typeof window === "undefined") return null;
-
-  const raw = window.sessionStorage.getItem(getRecordsCacheKey(userId, role));
-  if (!raw) return null;
-
-  try {
-    return JSON.parse(raw) as { timestamp: number; records: Record[]; communities: Community[] };
-  } catch {
-    window.sessionStorage.removeItem(getRecordsCacheKey(userId, role));
-    return null;
-  }
+type CachedRecordsState = {
+  communities: Community[];
+  records: RecordItem[];
+  role: string;
+  userId: string;
 };
+
+let recordsCache: CachedRecordsState | null = null;
 
 export default function Records() {
   const { role, user, loading: authLoading } = useAuth();
-  const [records, setRecords] = useState<Record[]>([]);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [records, setRecords] = useState<RecordItem[]>([]);
   const [communities, setCommunities] = useState<Community[]>([]);
   const [search, setSearch] = useState("");
   const [filterCommunity, setFilterCommunity] = useState("all");
   const [filterRisk, setFilterRisk] = useState("all");
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [notesDialog, setNotesDialog] = useState<{ open: boolean; record: Record | null; notes: Note[] }>({ open: false, record: null, notes: [] });
-  const [communityNoteDialog, setCommunityNoteDialog] = useState<{ open: boolean; record: Record | null }>({ open: false, record: null });
+  const [loading, setLoading] = useState(true);
+  const [highlightedRecordId, setHighlightedRecordId] = useState<string | null>(null);
+  const [notesDialog, setNotesDialog] = useState<{ open: boolean; record: RecordItem | null; notes: Note[] }>({ open: false, record: null, notes: [] });
+  const [communityNoteDialog, setCommunityNoteDialog] = useState<{ open: boolean; mode: "note" | "report"; notes: Note[]; record: RecordItem | null }>({ open: false, mode: "note", notes: [], record: null });
   const [newNoteText, setNewNoteText] = useState("");
   const [communityNoteText, setCommunityNoteText] = useState("");
-  const [loading, setLoading] = useState(true);
-
+  const [editingTdNoteId, setEditingTdNoteId] = useState<Note["id"] | null>(null);
+  const [editingCommunityNoteId, setEditingCommunityNoteId] = useState<Note["id"] | null>(null);
   const [form, setForm] = useState({
     national_id: "",
     last_name: "",
@@ -108,65 +97,60 @@ export default function Records() {
     notes: "",
   });
 
+  const syncLocalRecord = useCallback((recordId: string, updater: (record: RecordItem) => RecordItem) => {
+    setRecords((prev) => {
+      const next = prev.map((record) => (record.id === recordId ? updater(record) : record));
+      if (recordsCache?.userId === user?.id && recordsCache?.role === role) {
+        recordsCache = { ...recordsCache, records: next };
+      }
+      return next;
+    });
+  }, [role, user?.id]);
+
   const fetchData = useCallback(async (showLoader = true) => {
     if (!user || !role) return;
     if (showLoader) setLoading(true);
 
-    const [recordsRes, communitiesRes, notesRes, communityNotesRes] = await Promise.all([
-      supabase
-        .from("records")
-        .select("*, communities(name)")
-        .eq("is_deleted", false)
-        .order("created_at", { ascending: false }),
+    const [recordsRes, communitiesRes, tdNotesRes, communityNotesRes] = await Promise.all([
+      supabase.from("records").select("*, communities(name)").eq("is_deleted", false).order("created_at", { ascending: false }),
       supabase.from("communities").select("*").order("name"),
       role === "admin" || role === "tiferet_david"
-        ? supabase.from("td_notes").select("*, profiles(display_name)")
-        : Promise.resolve({ data: null, error: null } as any),
-      role === "admin" || role === "tiferet_david"
-        ? supabase.from("community_notes").select("record_id, id")
-        : Promise.resolve({ data: null, error: null } as any),
+        ? supabase.from("td_notes").select("id, created_at, note, record_id, user_id, profiles(display_name)").order("created_at", { ascending: true })
+        : Promise.resolve({ data: [], error: null } as any),
+      supabase.from("community_notes").select("id, created_at, note, record_id, user_id, profiles(display_name)").order("created_at", { ascending: true }),
     ]);
 
-    if (recordsRes.error) {
-      console.error("Error fetching records:", recordsRes.error);
-      toast.error("שגיאה בטעינת הרשומות: " + recordsRes.error.message);
+    const error = recordsRes.error || communitiesRes.error || tdNotesRes.error || communityNotesRes.error;
+    if (error) {
+      toast.error("שגיאה בטעינת הרשומות: " + error.message);
       if (showLoader) setLoading(false);
       return;
     }
 
-    let finalRecords: Record[] = (recordsRes.data as any[]) || [];
+    const tdNotesMap = new Map<string, Note[]>();
+    (tdNotesRes.data || []).forEach((note: Note) => {
+      if (!tdNotesMap.has(note.record_id)) tdNotesMap.set(note.record_id, []);
+      tdNotesMap.get(note.record_id)?.push(note);
+    });
 
-    if (notesRes.data) {
-      const notesMap = new Map<string, any[]>();
-      notesRes.data.forEach((note: any) => {
-        if (!notesMap.has(note.record_id)) notesMap.set(note.record_id, []);
-        notesMap.get(note.record_id)?.push(note);
-      });
-      finalRecords = finalRecords.map((record) => ({ ...record, td_notes: notesMap.get(record.id) || [] }));
-    }
+    const communityNotesMap = new Map<string, Note[]>();
+    (communityNotesRes.data || []).forEach((note: Note) => {
+      if (!communityNotesMap.has(note.record_id)) communityNotesMap.set(note.record_id, []);
+      communityNotesMap.get(note.record_id)?.push(note);
+    });
 
-    if (communityNotesRes.data) {
-      const communityNotesMap = new Map<string, any[]>();
-      communityNotesRes.data.forEach((note: any) => {
-        if (!communityNotesMap.has(note.record_id)) communityNotesMap.set(note.record_id, []);
-        communityNotesMap.get(note.record_id)?.push({ id: note.id });
-      });
-      finalRecords = finalRecords.map((record) => ({ ...record, community_notes: communityNotesMap.get(record.id) || [] }));
-    }
+    const nextRecords = ((recordsRes.data as RecordItem[]) || []).map((record) => ({
+      ...record,
+      td_notes: tdNotesMap.get(record.id) || [],
+      community_notes: communityNotesMap.get(record.id) || [],
+    }));
 
-    setRecords(finalRecords);
-    setCommunities((communitiesRes.data as Community[]) || []);
+    const nextCommunities = (communitiesRes.data as Community[]) || [];
+    setRecords(nextRecords);
+    setCommunities(nextCommunities);
+    recordsCache = { userId: user.id, role, records: nextRecords, communities: nextCommunities };
     if (showLoader) setLoading(false);
   }, [role, user]);
-
-  useEffect(() => {
-    if (!user || !role || typeof window === "undefined") return;
-
-    window.sessionStorage.setItem(
-      getRecordsCacheKey(user.id, role),
-      JSON.stringify({ timestamp: Date.now(), records, communities })
-    );
-  }, [records, communities, user?.id, role]);
 
   useEffect(() => {
     if (authLoading) return;
@@ -177,29 +161,66 @@ export default function Records() {
       return;
     }
 
-    const cached = readRecordsCache(user.id, role);
-
-    if (cached) {
-      setRecords(cached.records);
-      setCommunities(cached.communities);
+    if (recordsCache?.userId === user.id && recordsCache?.role === role) {
+      setRecords(recordsCache.records);
+      setCommunities(recordsCache.communities);
       setLoading(false);
-
-      if (Date.now() - cached.timestamp < RECORDS_CACHE_TTL) {
-        return;
-      }
-
-      void fetchData(false);
       return;
     }
 
     void fetchData();
-  }, [authLoading, user?.id, role, fetchData]);
+  }, [authLoading, fetchData, role, user]);
+
+  useEffect(() => {
+    const targetRecordId = searchParams.get("record");
+    const targetNationalId = searchParams.get("nationalId");
+    if (loading || records.length === 0 || (!targetRecordId && !targetNationalId)) return;
+
+    const record = records.find((item) => item.id === targetRecordId || item.national_id === targetNationalId);
+    if (!record) return;
+
+    setSearch("");
+    setFilterCommunity("all");
+    setFilterRisk("all");
+    setHighlightedRecordId(record.id);
+    window.requestAnimationFrame(() => {
+      document.getElementById(`record-row-${record.id}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+    const timeout = window.setTimeout(() => setHighlightedRecordId(null), 2500);
+    setSearchParams({}, { replace: true });
+
+    return () => window.clearTimeout(timeout);
+  }, [loading, records, searchParams, setSearchParams]);
+
+  const updateRiskLevel = async (record: RecordItem, newLevel: string, action = "risk_level_changed", successMessage = "רמת סיכון עודכנה") => {
+    const oldLevel = record.risk_level;
+    const { error } = await supabase.from("records").update({ risk_level: newLevel as any }).eq("id", record.id);
+    if (error) {
+      toast.error("שגיאה בעדכון רמת סיכון");
+      return false;
+    }
+
+    if (user) {
+      await supabase.from("history_logs").insert({
+        record_id: record.id,
+        changed_by: user.id,
+        old_risk_level: oldLevel as any,
+        new_risk_level: newLevel as any,
+        action_type: action,
+      });
+    }
+
+    syncLocalRecord(record.id, (current) => ({ ...current, risk_level: newLevel }));
+    toast.success(successMessage);
+    return true;
+  };
 
   const handleAdd = async () => {
     if (!form.national_id || !form.last_name || !form.first_name || !form.community_id) {
       toast.error("נא למלא את כל השדות החובה");
       return;
     }
+
     const { error } = await supabase.from("records").insert({
       national_id: form.national_id.trim(),
       last_name: form.last_name.trim(),
@@ -210,127 +231,202 @@ export default function Records() {
       risk_level: form.risk_level as any,
       notes: form.notes.trim() || null,
     });
+
     if (error) {
-      if (error.code === "23505") toast.error("מספר ת.ז. כבר קיים במערכת");
-      else toast.error("שגיאה בהוספת רשומה: " + error.message);
+      toast.error(error.code === "23505" ? "מספר ת.ז. כבר קיים במערכת" : `שגיאה בהוספת רשומה: ${error.message}`);
       return;
     }
-    toast.success("רשומה נוספה בהצלחה");
+
     setDialogOpen(false);
     setForm({ national_id: "", last_name: "", first_name: "", community_id: "", school: "", grade_class: "", risk_level: "classic", notes: "" });
+    toast.success("רשומה נוספה בהצלחה");
     void fetchData(false);
   };
 
   const handleSoftDelete = async (recordId: string) => {
     if (role === "admin") {
       await supabase.from("records").update({ is_deleted: true }).eq("id", recordId);
+      setRecords((prev) => prev.filter((record) => record.id !== recordId));
+      if (recordsCache?.userId === user?.id && recordsCache?.role === role) {
+        recordsCache = { ...recordsCache, records: recordsCache.records.filter((record) => record.id !== recordId) };
+      }
       toast.success("רשומה נמחקה");
-    } else {
-      if (!user) return;
-      await supabase.from("deletion_queue").insert({ record_id: recordId, requested_by: user.id });
-      toast.success("בקשת מחיקה נשלחה לאישור מנהל");
-    }
-    void fetchData(false);
-  };
-
-  const handleRiskChange = async (record: Record, newLevel: string, action: string = "risk_level_changed") => {
-    const oldLevel = record.risk_level;
-    const { error } = await supabase.from("records").update({ risk_level: newLevel as any }).eq("id", record.id);
-    if (error) {
-      toast.error("שגיאה בעדכון רמת סיכון");
       return;
     }
-    if (user) {
-      await supabase.from("history_logs").insert({
-        record_id: record.id,
-        changed_by: user.id,
-        old_risk_level: oldLevel as any,
-        new_risk_level: newLevel as any,
-        action_type: action,
-      });
-    }
-    // Update locally without full refetch
-    setRecords((prev) => prev.map((r) => r.id === record.id ? { ...r, risk_level: newLevel } : r));
-    toast.success("רמת סיכון עודכנה");
+
+    if (!user) return;
+    await supabase.from("deletion_queue").insert({ record_id: recordId, requested_by: user.id });
+    toast.success("בקשת מחיקה נשלחה לאישור מנהל");
   };
 
-  const handleTreatmentChange = async (record: Record, newStatus: string) => {
+  const handleRiskChange = async (record: RecordItem, newLevel: string, action = "risk_level_changed") => {
+    await updateRiskLevel(record, newLevel, action);
+  };
+
+  const handleTreatmentChange = async (record: RecordItem, newStatus: string) => {
     await supabase.from("records").update({ treatment_status: newStatus as any }).eq("id", record.id);
-    setRecords((prev) => prev.map((r) => r.id === record.id ? { ...r, treatment_status: newStatus } : r));
+    syncLocalRecord(record.id, (current) => ({ ...current, treatment_status: newStatus }));
     toast.success("סטטוס טיפול עודכן");
   };
 
-  const openNotesDialog = (record: Record) => {
+  const openNotesDialog = (record: RecordItem) => {
     setNotesDialog({ open: true, record, notes: record.td_notes || [] });
     setNewNoteText("");
+    setEditingTdNoteId(null);
   };
 
-  const openCommunityNoteDialog = (record: Record) => {
-    setCommunityNoteDialog({ open: true, record });
+  const openCommunityNoteDialog = (record: RecordItem, mode: "note" | "report" = "note") => {
+    setCommunityNoteDialog({ open: true, mode, notes: record.community_notes || [], record });
     setCommunityNoteText("");
+    setEditingCommunityNoteId(null);
+  };
+
+  const upsertTdNoteLocally = (savedNote: Note) => {
+    setNotesDialog((prev) => {
+      const exists = prev.notes.some((note) => note.id === savedNote.id);
+      return {
+        ...prev,
+        notes: exists ? prev.notes.map((note) => (note.id === savedNote.id ? savedNote : note)) : [...prev.notes, savedNote],
+      };
+    });
+    syncLocalRecord(savedNote.record_id, (record) => {
+      const notes = record.td_notes || [];
+      const exists = notes.some((note) => note.id === savedNote.id);
+      return { ...record, td_notes: exists ? notes.map((note) => (note.id === savedNote.id ? savedNote : note)) : [...notes, savedNote] };
+    });
+  };
+
+  const upsertCommunityNoteLocally = (savedNote: Note) => {
+    setCommunityNoteDialog((prev) => {
+      const exists = prev.notes.some((note) => note.id === savedNote.id);
+      return {
+        ...prev,
+        notes: exists ? prev.notes.map((note) => (note.id === savedNote.id ? savedNote : note)) : [...prev.notes, savedNote],
+      };
+    });
+    syncLocalRecord(savedNote.record_id, (record) => {
+      const notes = record.community_notes || [];
+      const exists = notes.some((note) => note.id === savedNote.id);
+      return { ...record, community_notes: exists ? notes.map((note) => (note.id === savedNote.id ? savedNote : note)) : [...notes, savedNote] };
+    });
   };
 
   const saveNewNote = async () => {
     if (!notesDialog.record || !newNoteText.trim() || !user) return;
 
-    const { error } = await supabase
+    if (editingTdNoteId !== null) {
+      const { data, error } = await supabase
+        .from("td_notes")
+        .update({ note: newNoteText.trim() })
+        .eq("id", editingTdNoteId)
+        .select("id, created_at, note, record_id, user_id, profiles(display_name)")
+        .single();
+
+      if (error) {
+        toast.error("שגיאה בעדכון ההערה: " + error.message);
+        return;
+      }
+
+      upsertTdNoteLocally(data as Note);
+      setEditingTdNoteId(null);
+      setNewNoteText("");
+      toast.success("ההערה עודכנה בהצלחה");
+      return;
+    }
+
+    const { data, error } = await supabase
       .from("td_notes")
-      .insert({
-        record_id: notesDialog.record.id,
-        user_id: user.id,
-        note: newNoteText.trim(),
-      });
+      .insert({ record_id: notesDialog.record.id, user_id: user.id, note: newNoteText.trim() })
+      .select("id, created_at, note, record_id, user_id, profiles(display_name)")
+      .single();
 
     if (error) {
-      console.error("Error saving note:", error);
       toast.error("שגיאה בשמירת הערה: " + error.message);
       return;
     }
-    
-    toast.success("הערה נשמרה בהצלחה");
+
+    upsertTdNoteLocally(data as Note);
     setNewNoteText("");
-    const tempNewNote = {
-      id: new Date().toISOString(),
-      created_at: new Date().toISOString(),
-      note: newNoteText.trim(),
-      profiles: { display_name: 'אני' }
-    };
-    setNotesDialog(prev => ({...prev, notes: [...prev.notes, tempNewNote]}));
-    void fetchData(false);
+    toast.success("הערה נשמרה בהצלחה");
+  };
+
+  const deleteTdNote = async (note: Note) => {
+    const { error } = await supabase.from("td_notes").delete().eq("id", note.id);
+    if (error) {
+      toast.error("שגיאה במחיקת ההערה: " + error.message);
+      return;
+    }
+    setNotesDialog((prev) => ({ ...prev, notes: prev.notes.filter((item) => item.id !== note.id) }));
+    syncLocalRecord(note.record_id, (record) => ({ ...record, td_notes: (record.td_notes || []).filter((item) => item.id !== note.id) }));
+    toast.success("ההערה נמחקה");
   };
 
   const saveCommunityNote = async () => {
-    if (!communityNoteDialog.record || !user) return;
-    if (communityNoteText.trim() === "") {
-      toast.error("הערה לא יכולה להיות ריקה");
+    if (!communityNoteDialog.record || !user || !communityNoteText.trim()) {
+      toast.error("חייבים לכתוב הערה");
       return;
     }
-    const { error } = await supabase.from("community_notes").insert({
-      record_id: communityNoteDialog.record.id,
-      user_id: user.id,
-      note: communityNoteText.trim(),
-    });
+
+    if (editingCommunityNoteId !== null) {
+      const { data, error } = await supabase
+        .from("community_notes")
+        .update({ note: communityNoteText.trim() })
+        .eq("id", editingCommunityNoteId)
+        .select("id, created_at, note, record_id, user_id, profiles(display_name)")
+        .single();
+
+      if (error) {
+        toast.error("שגיאה בעדכון ההערה: " + error.message);
+        return;
+      }
+
+      upsertCommunityNoteLocally(data as Note);
+      setCommunityNoteText("");
+      setEditingCommunityNoteId(null);
+      toast.success("ההערה עודכנה בהצלחה");
+      return;
+    }
+
+    const { data, error } = await supabase
+      .from("community_notes")
+      .insert({ record_id: communityNoteDialog.record.id, user_id: user.id, note: communityNoteText.trim() })
+      .select("id, created_at, note, record_id, user_id, profiles(display_name)")
+      .single();
 
     if (error) {
       toast.error("שגיאה בשמירת הערה: " + error.message);
       return;
     }
+
+    upsertCommunityNoteLocally(data as Note);
+    setCommunityNoteText("");
+
+    if (communityNoteDialog.mode === "report") {
+      const updated = await updateRiskLevel(communityNoteDialog.record, "needs_treatment", "reported_for_treatment", "הדיווח נשמר והועבר לטיפול");
+      if (updated) {
+        setCommunityNoteDialog({ open: false, mode: "note", notes: [], record: null });
+      }
+      return;
+    }
+
     toast.success("הערה נוספה בהצלחה");
-    setCommunityNoteDialog({ open: false, record: null });
-    void fetchData(false); // Refetch to update note indicator
+  };
+
+  const deleteCommunityNote = async (note: Note) => {
+    const { error } = await supabase.from("community_notes").delete().eq("id", note.id);
+    if (error) {
+      toast.error("שגיאה במחיקת ההערה: " + error.message);
+      return;
+    }
+    setCommunityNoteDialog((prev) => ({ ...prev, notes: prev.notes.filter((item) => item.id !== note.id) }));
+    syncLocalRecord(note.record_id, (record) => ({ ...record, community_notes: (record.community_notes || []).filter((item) => item.id !== note.id) }));
+    toast.success("ההערה נמחקה");
   };
 
   const handleExport = () => {
     const headers = ["שם פרטי", "שם משפחה", "קהילה", "ישיבה", "שיעור", "רמת סיכון"];
-    const rows = filtered.map((r) => [
-      r.first_name,
-      r.last_name,
-      r.communities?.name || "",
-      r.school || "",
-      r.grade_class || "",
-      r.risk_level,
-    ]);
-    const csv = "\uFEFF" + [headers, ...rows].map((r) => r.join(",")).join("\n");
+    const rows = filtered.map((item) => [item.first_name, item.last_name, item.communities?.name || "", item.school || "", item.grade_class || "", item.risk_level]);
+    const csv = "\uFEFF" + [headers, ...rows].map((row) => row.join(",")).join("\n");
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -339,40 +435,37 @@ export default function Records() {
     a.click();
   };
 
-  const filtered = records.filter((r) => {
-    const matchSearch =
-      r.first_name.includes(search) ||
-      r.last_name.includes(search) ||
-      (role === "admin" && r.national_id.includes(search));
-    const matchCommunity = filterCommunity === "all" || r.community_id === filterCommunity;
-    const matchRisk = filterRisk === "all" || r.risk_level === filterRisk;
+  const filtered = useMemo(() => records.filter((item) => {
+    const matchSearch = item.first_name.includes(search) || item.last_name.includes(search) || item.communities?.name?.includes(search) || item.school?.includes(search) || (role === "admin" && item.national_id.includes(search));
+    const matchCommunity = filterCommunity === "all" || item.community_id === filterCommunity;
+    const matchRisk = filterRisk === "all" || item.risk_level === filterRisk;
     return matchSearch && matchCommunity && matchRisk;
-  });
+  }), [filterCommunity, filterRisk, records, role, search]);
 
   const showNotes = role === "admin" || role === "tiferet_david";
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 animate-fade-in">
+      <div className="flex animate-fade-in flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
         <h1 className="text-2xl font-bold">רשומות</h1>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <Button variant="outline" size="sm" onClick={() => fetchData()} disabled={loading}>
-            <RefreshCw className={`h-4 w-4 ml-1 ${loading ? 'animate-spin' : ''}`} />
+            <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
             רענן
           </Button>
           <Button variant="outline" size="sm" onClick={handleExport}>
-            <Download className="h-4 w-4 ml-1" />
+            <Download className="h-4 w-4" />
             ייצוא
           </Button>
           {role !== "tiferet_david" && (
             <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
               <DialogTrigger asChild>
                 <Button size="sm">
-                  <Plus className="h-4 w-4 ml-1" />
+                  <Plus className="h-4 w-4" />
                   הוסף רשומה
                 </Button>
               </DialogTrigger>
-              <DialogContent className="max-w-lg">
+              <DialogContent className="max-w-lg" dir="rtl">
                 <DialogHeader>
                   <DialogTitle>רשומה חדשה</DialogTitle>
                 </DialogHeader>
@@ -394,12 +487,10 @@ export default function Records() {
                     </div>
                     <div className="space-y-2">
                       <Label>קהילה *</Label>
-                      <Select value={form.community_id} onValueChange={(v) => setForm({ ...form, community_id: v })}>
+                      <Select value={form.community_id} onValueChange={(value) => setForm({ ...form, community_id: value })}>
                         <SelectTrigger><SelectValue placeholder="בחר קהילה" /></SelectTrigger>
                         <SelectContent>
-                          {communities.map((c) => (
-                            <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
-                          ))}
+                          {communities.map((community) => <SelectItem key={community.id} value={community.id}>{community.name}</SelectItem>)}
                         </SelectContent>
                       </Select>
                     </div>
@@ -416,10 +507,10 @@ export default function Records() {
                   </div>
                   <div className="space-y-2">
                     <Label>רמת סיכון</Label>
-                    <Select value={form.risk_level} onValueChange={(v) => setForm({ ...form, risk_level: v })}>
+                    <Select value={form.risk_level} onValueChange={(value) => setForm({ ...form, risk_level: value })}>
                       <SelectTrigger><SelectValue /></SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="classic"> classics</SelectItem>
+                        <SelectItem value="classic">קלאסי</SelectItem>
                         <SelectItem value="needs_attention">דורש תשומת לב</SelectItem>
                         <SelectItem value="report_received">התקבל דיווח</SelectItem>
                         <SelectItem value="needs_treatment">דורש טיפול</SelectItem>
@@ -438,33 +529,25 @@ export default function Records() {
         </div>
       </div>
 
-      {/* Filters */}
       <Card className="animate-slide-up" style={{ animationDelay: "80ms", animationFillMode: "both" }}>
-        <CardContent className="pt-4 pb-3">
-          <div className="flex flex-col sm:flex-row gap-3">
+        <CardContent className="pb-3 pt-4">
+          <div className="flex flex-col gap-3 sm:flex-row">
             <div className="relative flex-1">
-              <Search className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="חיפוש לפי שם..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="pr-10"
-              />
+              <Search className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input placeholder="חיפוש לפי שם, קהילה או ישיבה..." value={search} onChange={(e) => setSearch(e.target.value)} className="pr-10" />
             </div>
             <Select value={filterCommunity} onValueChange={setFilterCommunity}>
               <SelectTrigger className="w-full sm:w-44"><SelectValue placeholder="כל הקהילות" /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">כל הקהילות</SelectItem>
-                {communities.map((c) => (
-                  <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
-                ))}
+                {communities.map((community) => <SelectItem key={community.id} value={community.id}>{community.name}</SelectItem>)}
               </SelectContent>
             </Select>
             <Select value={filterRisk} onValueChange={setFilterRisk}>
               <SelectTrigger className="w-full sm:w-44"><SelectValue placeholder="כל הרמות" /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">כל הרמות</SelectItem>
-                <SelectItem value="classic"> classics</SelectItem>
+                <SelectItem value="classic">קלאסי</SelectItem>
                 <SelectItem value="needs_attention">דורש תשומת לב</SelectItem>
                 <SelectItem value="report_received">התקבל דיווח</SelectItem>
                 <SelectItem value="needs_treatment">דורש טיפול</SelectItem>
@@ -474,13 +557,11 @@ export default function Records() {
         </CardContent>
       </Card>
 
-      {/* Results count */}
       <div className="text-sm text-muted-foreground">
         {filtered.length} רשומות {search || filterCommunity !== "all" || filterRisk !== "all" ? "(מסוננות)" : ""}
       </div>
 
-      {/* Table */}
-      <Card className="shadow-sm animate-slide-up" style={{ animationDelay: "160ms", animationFillMode: "both" }}>
+      <Card className="animate-slide-up shadow-sm" style={{ animationDelay: "160ms", animationFillMode: "both" }}>
         <CardContent className="p-0">
           <div className="overflow-x-auto">
             <Table>
@@ -496,189 +577,125 @@ export default function Records() {
                   <TableHead className="font-semibold">רמת סיכון</TableHead>
                   {role === "tiferet_david" && <TableHead className="font-semibold">סטטוס טיפול</TableHead>}
                   {showNotes && <TableHead className="font-semibold">הערות ת״ד</TableHead>}
-                  <TableHead className="font-semibold w-20">פעולות</TableHead>
+                  <TableHead className="w-24 font-semibold">פעולות</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {loading ? (
                   <TableRow>
-                    <TableCell colSpan={20} className="text-center py-12 text-muted-foreground">
-                      טוען...
-                    </TableCell>
+                    <TableCell colSpan={20} className="py-12 text-center text-muted-foreground">טוען...</TableCell>
                   </TableRow>
                 ) : filtered.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={20} className="text-center py-12 text-muted-foreground">
-                      לא נמצאו רשומות
+                    <TableCell colSpan={20} className="py-12 text-center text-muted-foreground">לא נמצאו רשומות</TableCell>
+                  </TableRow>
+                ) : filtered.map((record) => (
+                  <TableRow key={record.id} id={`record-row-${record.id}`} className={highlightedRecordId === record.id ? "bg-accent/70" : "hover:bg-muted/30"}>
+                    {role === "admin" && <TableCell dir="ltr" className="font-mono text-xs">{record.national_id}</TableCell>}
+                    <TableCell className="font-medium">{record.first_name}</TableCell>
+                    <TableCell>{record.last_name}</TableCell>
+                    <TableCell>{record.communities?.name || "—"}</TableCell>
+                    <TableCell className="text-muted-foreground">{record.school || "—"}</TableCell>
+                    <TableCell className="text-muted-foreground">{record.grade_class || "—"}</TableCell>
+                    <TableCell dir="ltr" className="text-muted-foreground">{record.phone || "—"}</TableCell>
+                    <TableCell>
+                      {role !== "tiferet_david" ? (
+                        <Select value={record.risk_level} onValueChange={(value) => handleRiskChange(record, value)}>
+                          <SelectTrigger className="h-8 w-36 border-0 bg-transparent p-0"><RiskBadge level={record.risk_level} /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="classic">קלאסי</SelectItem>
+                            <SelectItem value="needs_attention">דורש תשומת לב</SelectItem>
+                            <SelectItem value="report_received">התקבל דיווח</SelectItem>
+                            <SelectItem value="needs_treatment">דורש טיפול</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      ) : <RiskBadge level={record.risk_level} />}
+                    </TableCell>
+                    {role === "tiferet_david" && (
+                      <TableCell>
+                        <Select value={record.treatment_status || "unknown"} onValueChange={(value) => handleTreatmentChange(record, value)}>
+                          <SelectTrigger className="h-8 w-24"><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="known">מוכר</SelectItem>
+                            <SelectItem value="unknown">לא מוכר</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </TableCell>
+                    )}
+                    {showNotes && (
+                      <TableCell>
+                        <Button variant="ghost" size="sm" className={`h-7 gap-1 ${record.td_notes && record.td_notes.length > 0 ? "font-semibold text-primary" : "text-muted-foreground"}`} onClick={() => openNotesDialog(record)}>
+                          <MessageSquare className="h-3.5 w-3.5" />
+                          {record.td_notes && record.td_notes.length > 0 ? `צפה (${record.td_notes.length})` : "הערות"}
+                        </Button>
+                      </TableCell>
+                    )}
+                    <TableCell>
+                      <div className="flex items-center gap-1">
+                        {role !== "tiferet_david" && (
+                          <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground" onClick={() => openCommunityNoteDialog(record)} title="הערות על תלמיד">
+                            <NotebookPen className={`h-4 w-4 ${(record.community_notes?.length || 0) > 0 ? "text-primary" : ""}`} />
+                          </Button>
+                        )}
+                        {role !== "tiferet_david" && (
+                          <Button variant="ghost" size="icon" className="h-8 w-8 text-warning hover:bg-warning/10 hover:text-warning" disabled={record.risk_level === "needs_treatment"} onClick={() => openCommunityNoteDialog(record, "report")} title="דווח כדורש טיפול">
+                            <ShieldAlert className="h-4 w-4" />
+                          </Button>
+                        )}
+                        {role !== "tiferet_david" && (
+                          <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:bg-destructive/10 hover:text-destructive" onClick={() => handleSoftDelete(record.id)}>
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        )}
+                      </div>
                     </TableCell>
                   </TableRow>
-                ) : (
-                  filtered.map((record) => (
-                    <TableRow key={record.id} className="hover:bg-muted/30 transition-colors">
-                      {role === "admin" && <TableCell dir="ltr" className="font-mono text-xs">{record.national_id}</TableCell>}
-                      <TableCell className="font-medium">{record.first_name}</TableCell>
-                      <TableCell>{record.last_name}</TableCell>
-                      <TableCell>{record.communities?.name}</TableCell>
-                      <TableCell className="text-muted-foreground">{record.school || "—"}</TableCell>
-                      <TableCell className="text-muted-foreground">{record.grade_class || "—"}</TableCell>
-                      <TableCell dir="ltr" className="text-muted-foreground">{record.phone || "—"}</TableCell>
-                      <TableCell>
-                        {role !== "tiferet_david" ? (
-                          <Select
-                            value={record.risk_level}
-                            onValueChange={(v) => handleRiskChange(record, v)}
-                          >
-                            <SelectTrigger className="w-36 h-8 border-0 bg-transparent p-0">
-                              <RiskBadge level={record.risk_level} />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="classic"> classics</SelectItem>
-                              <SelectItem value="needs_attention">דורש תשומת לב</SelectItem>
-                              <SelectItem value="report_received">התקבל דיווח</SelectItem>
-                              <SelectItem value="needs_treatment">דורש טיפול</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        ) : (
-                          <RiskBadge level={record.risk_level} />
-                        )}
-                      </TableCell>
-                      {role === "tiferet_david" && (
-                        <TableCell>
-                          <Select
-                            value={record.treatment_status || "unknown"}
-                            onValueChange={(v) => handleTreatmentChange(record, v)}
-                          >
-                            <SelectTrigger className="w-24 h-8"><SelectValue /></SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="known">מוכר</SelectItem>
-                              <SelectItem value="unknown">לא מוכר</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </TableCell>
-                      )}
-                      {showNotes && (
-                        <TableCell>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className={`h-7 gap-1 ${record.td_notes && record.td_notes.length > 0 ? "text-primary font-semibold" : "text-muted-foreground"}`}
-                            onClick={() => openNotesDialog(record)}
-                          >
-                            <MessageSquare className="h-3.5 w-3.5" />
-                            {record.td_notes && record.td_notes.length > 0 ? `צפה (${record.td_notes.length})` : "הערות"}
-                          </Button>
-                        </TableCell>
-                      )}
-                      <TableCell>
-                        <div className="flex items-center gap-0.5">
-                          {role === "community_manager" && (
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-8 w-8 text-muted-foreground"
-                              onClick={() => openCommunityNoteDialog(record)}
-                              title="הוסף הערת קהילה"
-                            >
-                              <NotebookPen className={`h-4 w-4 ${record.community_notes && record.community_notes.length > 0 ? 'text-primary' : ''}`} />
-                            </Button>
-                          )}
-                          {role !== "tiferet_david" && (
-                            <AlertDialog>
-                              <AlertDialogTrigger asChild>
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="h-8 w-8 text-orange-600 hover:text-orange-600 hover:bg-orange-500/10"
-                                  disabled={record.risk_level === 'needs_treatment'}
-                                  title="דווח כדורש טיפול"
-                                >
-                                  <ShieldAlert className="h-4 w-4" />
-                                </Button>
-                              </AlertDialogTrigger>
-                              <AlertDialogContent>
-                                <AlertDialogHeader>
-                                  <AlertDialogTitle>דיווח כדורש טיפול</AlertDialogTitle>
-                                  <AlertDialogDescription>
-                                    האם אתה בטוח? פעולה זו תשנה את רמת הסיכון של {record.first_name} {record.last_name} ל"דורש טיפול" ותתועד במערכת.
-                                  </AlertDialogDescription>
-                                </AlertDialogHeader>
-                                <AlertDialogFooter>
-                                  <AlertDialogCancel>ביטול</AlertDialogCancel>
-                                  <AlertDialogAction onClick={() => handleRiskChange(record, 'needs_treatment', 'reported_for_treatment')}>
-                                    אשר דיווח
-                                  </AlertDialogAction>
-                                </AlertDialogFooter>
-                              </AlertDialogContent>
-                            </AlertDialog>
-                          )}
-                          {role !== "tiferet_david" && (
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-8 w-8 text-destructive hover:text-destructive hover:bg-destructive/10"
-                              onClick={() => handleSoftDelete(record.id)}
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          )}
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))
-                )}
+                ))}
               </TableBody>
             </Table>
           </div>
         </CardContent>
       </Card>
 
-      {/* TD Notes Dialog (Chat View) */}
       <Dialog open={notesDialog.open} onOpenChange={(open) => !open && setNotesDialog({ open: false, record: null, notes: [] })}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-w-lg" dir="rtl">
           <DialogHeader>
-            <DialogTitle>
-              הערות ת״ד — {notesDialog.record?.first_name} {notesDialog.record?.last_name}
-            </DialogTitle>
+            <DialogTitle>הערות ת״ד — {notesDialog.record?.first_name} {notesDialog.record?.last_name}</DialogTitle>
           </DialogHeader>
-          <div className="flex flex-col h-[60vh]">
-            <ScrollArea className="flex-1 pr-4 -mr-4 mb-4">
+          <div className="flex h-[60vh] flex-col">
+            <ScrollArea className="mb-4 flex-1">
               <div className="space-y-4">
-                {notesDialog.notes.length === 0 ? (
-                  <p className="text-sm text-muted-foreground text-center py-8">אין עדיין הערות</p>
-                ) : (
-                  notesDialog.notes.map(note => (
-                    <div key={note.id} className="flex items-start gap-3">
-                      <Avatar className="h-8 w-8">
-                        <AvatarFallback>{note.profiles?.display_name?.charAt(0) || 'U'}</AvatarFallback>
-                      </Avatar>
-                      <div className="flex-1 bg-muted rounded-lg p-3">
-                        <div className="flex items-center justify-between mb-1">
-                          <p className="text-xs font-semibold">{note.profiles?.display_name || 'משתמש לא ידוע'}</p>
-                          <p className="text-xs text-muted-foreground" title={new Date(note.created_at).toLocaleString('he-IL')}>
-                            {formatDistanceToNow(new Date(note.created_at), { addSuffix: true, locale: he })}
-                          </p>
-                        </div>
-                        <p className="text-sm whitespace-pre-wrap">{note.note}</p>
+                {notesDialog.notes.length === 0 ? <p className="py-8 text-center text-sm text-muted-foreground">אין עדיין הערות</p> : notesDialog.notes.map((note) => (
+                  <div key={note.id} className="flex items-start gap-3">
+                    <Avatar className="h-8 w-8"><AvatarFallback>{note.profiles?.display_name?.charAt(0) || "U"}</AvatarFallback></Avatar>
+                    <div className="flex-1 rounded-lg bg-muted p-3">
+                      <div className="mb-1 flex items-center justify-between gap-3">
+                        <p className="text-xs font-semibold">{note.profiles?.display_name || "משתמש לא ידוע"}</p>
+                        <p className="text-xs text-muted-foreground" title={new Date(note.created_at).toLocaleString("he-IL")}>{formatDistanceToNow(new Date(note.created_at), { addSuffix: true, locale: he })}</p>
                       </div>
+                      <p className="whitespace-pre-wrap text-sm">{note.note}</p>
+                      {user && (role === "admin" || note.user_id === user.id) && (
+                        <div className="mt-3 flex items-center justify-end gap-1">
+                          <Button variant="ghost" size="sm" className="h-7 px-2 text-muted-foreground" onClick={() => { setEditingTdNoteId(note.id); setNewNoteText(note.note); }}>
+                            <Pencil className="h-3.5 w-3.5" />ערוך
+                          </Button>
+                          <Button variant="ghost" size="sm" className="h-7 px-2 text-destructive hover:bg-destructive/10 hover:text-destructive" onClick={() => void deleteTdNote(note)}>
+                            <Trash2 className="h-3.5 w-3.5" />מחק
+                          </Button>
+                        </div>
+                      )}
                     </div>
-                  ))
-                )}
+                  </div>
+                ))}
               </div>
             </ScrollArea>
-            <div className="mt-auto pt-2 border-t">
+            <div className="mt-auto border-t pt-2">
               <div className="space-y-2">
-                <Textarea
-                  value={newNoteText}
-                  onChange={(e) => setNewNoteText(e.target.value)}
-                  placeholder="הוסף הערה חדשה..."
-                  rows={3}
-                  maxLength={2000}
-                />
+                <Textarea value={newNoteText} onChange={(e) => setNewNoteText(e.target.value)} placeholder={editingTdNoteId !== null ? "ערוך את ההערה..." : "הוסף הערה חדשה..."} rows={3} maxLength={2000} />
                 <div className="flex justify-end gap-2">
-                   <Button variant="outline" onClick={() => setNotesDialog({ open: false, record: null, notes: [] })}>
-                    סגור
-                  </Button>
-                  <Button onClick={saveNewNote} disabled={!newNoteText.trim()}>שלח הערה</Button>
+                  {editingTdNoteId !== null && <Button variant="ghost" onClick={() => { setEditingTdNoteId(null); setNewNoteText(""); }}><X className="h-4 w-4" />בטל עריכה</Button>}
+                  <Button variant="outline" onClick={() => setNotesDialog({ open: false, record: null, notes: [] })}>סגור</Button>
+                  <Button onClick={saveNewNote} disabled={!newNoteText.trim()}>{editingTdNoteId !== null && <Save className="h-4 w-4" />}{editingTdNoteId !== null ? "שמור שינויים" : "שלח הערה"}</Button>
                 </div>
               </div>
             </div>
@@ -686,31 +703,41 @@ export default function Records() {
         </DialogContent>
       </Dialog>
 
-
-      {/* Community Note Dialog */}
-      <Dialog open={communityNoteDialog.open} onOpenChange={(open) => !open && setCommunityNoteDialog({ open: false, record: null })}>
-        <DialogContent className="max-w-md">
+      <Dialog open={communityNoteDialog.open} onOpenChange={(open) => !open && setCommunityNoteDialog({ open: false, mode: "note", notes: [], record: null })}>
+        <DialogContent className="max-w-xl" dir="rtl">
           <DialogHeader>
-            <DialogTitle>
-              הוספת הערה — {communityNoteDialog.record?.first_name} {communityNoteDialog.record?.last_name}
-            </DialogTitle>
+            <DialogTitle>{communityNoteDialog.mode === "report" ? "דיווח לטיפול" : "הערות על תלמיד"} — {communityNoteDialog.record?.first_name} {communityNoteDialog.record?.last_name}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-2">
-            <p className="text-sm text-muted-foreground">
-              ההערה תירשם באופן אנונימי (עבורך) ותהיה גלויה רק למנהל המערכת ולנציגי תפארת דוד. לא תוכל לראות או לערוך אותה לאחר השליחה.
-            </p>
-            <Textarea
-              value={communityNoteText}
-              onChange={(e) => setCommunityNoteText(e.target.value)}
-              placeholder="כתוב הערה..."
-              rows={5}
-              maxLength={2000}
-            />
-            <div className="flex gap-2 justify-end">
-              <Button variant="outline" onClick={() => setCommunityNoteDialog({ open: false, record: null })}>
-                ביטול
-              </Button>
-              <Button onClick={saveCommunityNote}>שמור הערה</Button>
+            <p className="text-sm text-muted-foreground">{communityNoteDialog.mode === "report" ? "כדי לדווח על תלמיד כדורש טיפול, חייבים להוסיף הערה ראשונה." : "אפשר לצפות, לערוך או למחוק הערות מורשות על התלמיד."}</p>
+            <ScrollArea className="max-h-56 rounded-lg border bg-muted/20 p-3">
+              <div className="space-y-3">
+                {communityNoteDialog.notes.length === 0 ? <p className="py-4 text-center text-sm text-muted-foreground">אין עדיין הערות</p> : communityNoteDialog.notes.map((note) => (
+                  <div key={note.id} className="rounded-lg bg-background p-3 shadow-sm">
+                    <div className="mb-1 flex items-center justify-between gap-3">
+                      <span className="text-xs font-semibold">{note.profiles?.display_name || "משתמש"}</span>
+                      <span className="text-xs text-muted-foreground">{formatDistanceToNow(new Date(note.created_at), { addSuffix: true, locale: he })}</span>
+                    </div>
+                    <p className="whitespace-pre-wrap text-sm">{note.note}</p>
+                    {user && (role === "admin" || note.user_id === user.id) && (
+                      <div className="mt-3 flex items-center justify-end gap-1">
+                        <Button variant="ghost" size="sm" className="h-7 px-2 text-muted-foreground" onClick={() => { setEditingCommunityNoteId(note.id); setCommunityNoteText(note.note); }}>
+                          <Pencil className="h-3.5 w-3.5" />ערוך
+                        </Button>
+                        <Button variant="ghost" size="sm" className="h-7 px-2 text-destructive hover:bg-destructive/10 hover:text-destructive" onClick={() => void deleteCommunityNote(note)}>
+                          <Trash2 className="h-3.5 w-3.5" />מחק
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </ScrollArea>
+            <Textarea value={communityNoteText} onChange={(e) => setCommunityNoteText(e.target.value)} placeholder={editingCommunityNoteId !== null ? "ערוך את ההערה..." : communityNoteDialog.mode === "report" ? "כתוב את ההערה הראשונה לפני הדיווח..." : "כתוב הערה..."} rows={5} maxLength={2000} />
+            <div className="flex justify-end gap-2">
+              {editingCommunityNoteId !== null && <Button variant="ghost" onClick={() => { setEditingCommunityNoteId(null); setCommunityNoteText(""); }}><X className="h-4 w-4" />בטל עריכה</Button>}
+              <Button variant="outline" onClick={() => setCommunityNoteDialog({ open: false, mode: "note", notes: [], record: null })}>ביטול</Button>
+              <Button onClick={saveCommunityNote} disabled={!communityNoteText.trim()}>{editingCommunityNoteId !== null ? "שמור שינויים" : communityNoteDialog.mode === "report" ? "שמור ודווח" : "שמור הערה"}</Button>
             </div>
           </div>
         </DialogContent>
